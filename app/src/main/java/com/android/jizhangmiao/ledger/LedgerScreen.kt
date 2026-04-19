@@ -11,6 +11,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -52,6 +55,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -79,6 +83,7 @@ import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 private val IncomeTint = Color(0xFF2E8B57)
@@ -121,6 +126,8 @@ fun LedgerScreen(
     var typeFilterName by rememberSaveable { mutableStateOf(LedgerEntryFilterType.ALL.name) }
     var categoryFilter by rememberSaveable { mutableStateOf("") }
     var budgetCategory by rememberSaveable { mutableStateOf(defaultCategoryFor(LedgerEntryType.EXPENSE)) }
+    var trendGranularityName by rememberSaveable { mutableStateOf(LedgerTrendGranularity.MONTH.name) }
+    var chartDetailCategory by rememberSaveable { mutableStateOf("") }
 
     var monthlyBudgetText by remember(uiState.budgetConfig.monthlyBudgetInCents) {
         mutableStateOf(uiState.budgetConfig.monthlyBudgetInCents?.toAmountInput().orEmpty())
@@ -131,6 +138,12 @@ fun LedgerScreen(
 
     val periodFilter = remember(periodFilterName) { LedgerPeriodFilter.valueOf(periodFilterName) }
     val typeFilter = remember(typeFilterName) { LedgerEntryFilterType.valueOf(typeFilterName) }
+    val trendGranularity = remember(trendGranularityName) {
+        LedgerTrendGranularity.valueOf(trendGranularityName)
+    }
+    val boards = remember { LedgerBoard.entries.toList() }
+    val pagerState = rememberPagerState(pageCount = { boards.size })
+    val coroutineScope = rememberCoroutineScope()
 
     val filteredEntries = remember(uiState.entries, periodFilter, typeFilter, categoryFilter) {
         filterEntries(
@@ -142,6 +155,9 @@ fun LedgerScreen(
     }
     val filteredSummary = remember(filteredEntries) {
         LedgerSummaryCalculator.calculate(filteredEntries)
+    }
+    val dashboardSummary = remember(uiState.entries) {
+        LedgerSummaryCalculator.calculate(uiState.entries)
     }
     val currentMonthEntries = remember(uiState.entries) {
         filterEntries(
@@ -157,11 +173,14 @@ fun LedgerScreen(
     val currentMonthTopCategories = remember(currentMonthEntries) {
         buildCategoryBreakdown(currentMonthEntries)
     }
-    val trendPoints = remember(filteredEntries) {
-        buildTrendPoints(filteredEntries)
+    val trendPoints = remember(filteredEntries, trendGranularity) {
+        buildTrendPoints(filteredEntries, trendGranularity)
     }
     val availableCategories = remember(uiState.entries, uiState.templates) {
         buildAvailableCategories(uiState.entries, uiState.templates)
+    }
+    val recentEntries = remember(uiState.entries) {
+        uiState.entries.take(6)
     }
     val budgetCategories = remember(availableCategories) {
         if (availableCategories.isEmpty()) {
@@ -170,6 +189,18 @@ fun LedgerScreen(
             availableCategories
         }
     }
+    val selectedStatsCategory = chartDetailCategory.takeIf { selectedCategory ->
+        selectedCategory.isNotBlank() &&
+            filteredEntries.any { entry -> entry.category == selectedCategory }
+    }
+    val statsDetailEntries = remember(filteredEntries, selectedStatsCategory) {
+        if (selectedStatsCategory == null) {
+            filteredEntries
+        } else {
+            filteredEntries.filter { entry -> entry.category == selectedStatsCategory }
+        }
+    }
+    val currentBoard = boards[pagerState.currentPage.coerceIn(0, boards.lastIndex)]
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -185,6 +216,11 @@ fun LedgerScreen(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let(onScanReceipt)
+    }
+    val openBoard: (LedgerBoard) -> Unit = { board ->
+        coroutineScope.launch {
+            pagerState.animateScrollToPage(board.ordinal)
+        }
     }
 
     Box(
@@ -205,39 +241,58 @@ fun LedgerScreen(
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
-                CenterAlignedTopAppBar(
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = Color.Transparent,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface
-                    ),
-                    title = {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "\u8bb0\u8d26\u55b5",
-                                style = MaterialTheme.typography.titleLarge
-                            )
-                            Text(
-                                text = "\u5168\u90e8\u6536\u652f\u3001\u9884\u7b97\u3001\u6a21\u677f\u548c\u5907\u4efd\u90fd\u5728\u8fd9\u91cc",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    CenterAlignedTopAppBar(
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                            containerColor = Color.Transparent,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        title = {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "\u8bb0\u8d26\u55b5",
+                                    style = MaterialTheme.typography.titleLarge
+                                )
+                                Text(
+                                    text = currentBoard.subtitle(),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    )
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(boards) { board ->
+                            FilterChip(
+                                selected = board.ordinal == pagerState.currentPage,
+                                onClick = {
+                                    openBoard(board)
+                                },
+                                label = {
+                                    Text(board.displayName())
+                                }
                             )
                         }
                     }
-                )
+                }
             }
         ) { innerPadding ->
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = 16.dp,
-                    top = innerPadding.calculateTopPadding() + 12.dp,
-                    end = 16.dp,
-                    bottom = innerPadding.calculateBottomPadding() + 28.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        top = innerPadding.calculateTopPadding(),
+                        bottom = innerPadding.calculateBottomPadding()
+                    )
             ) {
-                item {
-                    AnimatedVisibility(visible = uiState.statusMessage != null) {
+                AnimatedVisibility(visible = uiState.statusMessage != null) {
+                    Box(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    ) {
                         StatusBanner(
                             message = uiState.statusMessage.orEmpty(),
                             onDismiss = onDismissStatusMessage
@@ -245,131 +300,344 @@ fun LedgerScreen(
                     }
                 }
 
-                item {
-                    LedgerHeroCard(
-                        summary = filteredSummary,
-                        budgetConfig = uiState.budgetConfig,
-                        currentMonthSummary = currentMonthSummary,
-                        recordCount = filteredEntries.size,
-                        topCategories = currentMonthTopCategories
-                    )
-                }
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) { page ->
+                    when (boards[page]) {
+                        LedgerBoard.DASHBOARD -> DashboardBoard(
+                            summary = dashboardSummary,
+                            budgetConfig = uiState.budgetConfig,
+                            currentMonthSummary = currentMonthSummary,
+                            topCategories = currentMonthTopCategories,
+                            totalRecordCount = uiState.entries.size,
+                            recentEntries = recentEntries,
+                            form = uiState.form,
+                            isReceiptScanning = uiState.isReceiptScanning,
+                            onTypeSelected = onTypeSelected,
+                            onAmountChanged = onAmountChanged,
+                            onCategoryChanged = onCategoryChanged,
+                            onNoteChanged = onNoteChanged,
+                            onSuggestedCategorySelected = onSuggestedCategorySelected,
+                            onSaveClick = onSaveClick,
+                            onCancelEditClick = onCancelEditClick,
+                            onSaveTemplateClick = onSaveTemplateClick,
+                            onScanReceiptClick = {
+                                receiptLauncher.launch("image/*")
+                            },
+                            onEditClick = onEditClick,
+                            onDeleteClick = onDeleteClick
+                        )
 
-                item {
-                    FilterSection(
-                        periodFilter = periodFilter,
-                        typeFilter = typeFilter,
-                        categoryFilter = categoryFilter.ifBlank { null },
-                        categories = availableCategories,
-                        onPeriodSelected = { selectedFilter ->
-                            periodFilterName = selectedFilter.name
-                        },
-                        onTypeSelected = { selectedFilter ->
-                            typeFilterName = selectedFilter.name
-                        },
-                        onCategorySelected = { selectedCategory ->
-                            categoryFilter = selectedCategory.orEmpty()
-                        }
-                    )
-                }
+                        LedgerBoard.STATS -> StatisticsBoard(
+                            periodFilter = periodFilter,
+                            typeFilter = typeFilter,
+                            categoryFilter = categoryFilter.ifBlank { null },
+                            categories = availableCategories,
+                            filteredEntries = filteredEntries,
+                            filteredSummary = filteredSummary,
+                            trendPoints = trendPoints,
+                            trendGranularity = trendGranularity,
+                            selectedCategory = selectedStatsCategory,
+                            detailEntries = statsDetailEntries,
+                            onPeriodSelected = { selectedFilter ->
+                                periodFilterName = selectedFilter.name
+                            },
+                            onTypeSelected = { selectedFilter ->
+                                typeFilterName = selectedFilter.name
+                            },
+                            onCategorySelected = { selectedCategory ->
+                                categoryFilter = selectedCategory.orEmpty()
+                            },
+                            onTrendGranularitySelected = { selectedGranularity ->
+                                trendGranularityName = selectedGranularity.name
+                            },
+                            onChartCategorySelected = { selectedCategory ->
+                                chartDetailCategory = if (chartDetailCategory == selectedCategory) {
+                                    ""
+                                } else {
+                                    selectedCategory
+                                }
+                            },
+                            onClearChartSelection = {
+                                chartDetailCategory = ""
+                            },
+                            onEditClick = { entry ->
+                                onEditClick(entry)
+                                openBoard(LedgerBoard.DASHBOARD)
+                            },
+                            onDeleteClick = onDeleteClick
+                        )
 
-                item {
-                    StatsSection(
-                        summary = filteredSummary,
-                        filteredEntries = filteredEntries,
-                        trendPoints = trendPoints
-                    )
-                }
+                        LedgerBoard.BUDGET -> BudgetBoard(
+                            budgetConfig = uiState.budgetConfig,
+                            currentMonthEntries = currentMonthEntries,
+                            budgetCategories = budgetCategories,
+                            selectedCategory = budgetCategory,
+                            monthlyBudgetText = monthlyBudgetText,
+                            categoryBudgetText = categoryBudgetText,
+                            onMonthlyBudgetChanged = { value ->
+                                monthlyBudgetText = value.filter { it.isDigit() || it == '.' }
+                            },
+                            onCategorySelected = { category ->
+                                budgetCategory = category
+                                categoryBudgetText = uiState.budgetConfig.categoryBudgets[category]?.toAmountInput().orEmpty()
+                            },
+                            onCategoryBudgetChanged = { value ->
+                                categoryBudgetText = value.filter { it.isDigit() || it == '.' }
+                            },
+                            onSaveBudgetClick = {
+                                onSaveBudgetClick(monthlyBudgetText, budgetCategory, categoryBudgetText)
+                            }
+                        )
 
-                item {
-                    BudgetSection(
-                        budgetConfig = uiState.budgetConfig,
-                        currentMonthEntries = currentMonthEntries,
-                        budgetCategories = budgetCategories,
-                        selectedCategory = budgetCategory,
-                        monthlyBudgetText = monthlyBudgetText,
-                        categoryBudgetText = categoryBudgetText,
-                        onMonthlyBudgetChanged = { value ->
-                            monthlyBudgetText = value.filter { it.isDigit() || it == '.' }
-                        },
-                        onCategorySelected = { category ->
-                            budgetCategory = category
-                            categoryBudgetText = uiState.budgetConfig.categoryBudgets[category]?.toAmountInput().orEmpty()
-                        },
-                        onCategoryBudgetChanged = { value ->
-                            categoryBudgetText = value.filter { it.isDigit() || it == '.' }
-                        },
-                        onSaveBudgetClick = {
-                            onSaveBudgetClick(monthlyBudgetText, budgetCategory, categoryBudgetText)
-                        }
-                    )
-                }
-
-                item {
-                    TemplateSection(
-                        templates = uiState.templates,
-                        onApplyTemplateClick = onApplyTemplateClick,
-                        onDeleteTemplateClick = onDeleteTemplateClick
-                    )
-                }
-
-                item {
-                    EntryEditorSection(
-                        form = uiState.form,
-                        onTypeSelected = onTypeSelected,
-                        onAmountChanged = onAmountChanged,
-                        onCategoryChanged = onCategoryChanged,
-                        onNoteChanged = onNoteChanged,
-                        onSuggestedCategorySelected = onSuggestedCategorySelected,
-                        onSaveClick = onSaveClick,
-                        onCancelEditClick = onCancelEditClick,
-                        onSaveTemplateClick = onSaveTemplateClick,
-                        onScanReceiptClick = {
-                            receiptLauncher.launch("image/*")
-                        },
-                        isReceiptScanning = uiState.isReceiptScanning
-                    )
-                }
-
-                item {
-                    ToolSection(
-                        onExportClick = {
-                            exportLauncher.launch("jizhangmiao-backup-${LocalDate.now()}.json")
-                        },
-                        onImportClick = {
-                            importLauncher.launch(arrayOf("application/json", "text/plain"))
-                        }
-                    )
-                }
-
-                item {
-                    SectionHeading(
-                        title = "\u8d26\u5355\u660e\u7ec6",
-                        subtitle = if (filteredEntries.isEmpty()) {
-                            "\u5f53\u524d\u7b5b\u9009\u4e0b\u6682\u65f6\u6ca1\u6709\u8bb0\u5f55"
-                        } else {
-                            "\u5f53\u524d\u7b5b\u9009\u4e0b\u5171 ${filteredEntries.size} \u7b14\uff0c\u53ef\u7f16\u8f91\u3001\u5220\u9664\u6216\u56de\u770b\u8be6\u60c5"
-                        }
-                    )
-                }
-
-                if (filteredEntries.isEmpty()) {
-                    item {
-                        EmptyLedgerSection()
-                    }
-                } else {
-                    items(
-                        items = filteredEntries,
-                        key = { entry -> entry.id }
-                    ) { entry ->
-                        LedgerEntryCard(
-                            entry = entry,
-                            onEditClick = { onEditClick(entry) },
-                            onDeleteClick = { onDeleteClick(entry) }
+                        LedgerBoard.TOOLS -> ToolsBoard(
+                            templates = uiState.templates,
+                            onApplyTemplateClick = { template ->
+                                onApplyTemplateClick(template)
+                                openBoard(LedgerBoard.DASHBOARD)
+                            },
+                            onDeleteTemplateClick = onDeleteTemplateClick,
+                            onExportClick = {
+                                exportLauncher.launch("jizhangmiao-backup-${LocalDate.now()}.json")
+                            },
+                            onImportClick = {
+                                importLauncher.launch(arrayOf("application/json", "text/plain"))
+                            }
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DashboardBoard(
+    summary: LedgerSummary,
+    budgetConfig: LedgerBudgetConfig,
+    currentMonthSummary: LedgerSummary,
+    topCategories: List<CategorySpend>,
+    totalRecordCount: Int,
+    recentEntries: List<LedgerEntry>,
+    form: LedgerFormState,
+    isReceiptScanning: Boolean,
+    onTypeSelected: (LedgerEntryType) -> Unit,
+    onAmountChanged: (String) -> Unit,
+    onCategoryChanged: (String) -> Unit,
+    onNoteChanged: (String) -> Unit,
+    onSuggestedCategorySelected: (String) -> Unit,
+    onSaveClick: () -> Unit,
+    onCancelEditClick: () -> Unit,
+    onSaveTemplateClick: () -> Unit,
+    onScanReceiptClick: () -> Unit,
+    onEditClick: (LedgerEntry) -> Unit,
+    onDeleteClick: (LedgerEntry) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        item {
+            LedgerHeroCard(
+                summary = summary,
+                budgetConfig = budgetConfig,
+                currentMonthSummary = currentMonthSummary,
+                recordCount = totalRecordCount,
+                topCategories = topCategories
+            )
+        }
+
+        item {
+            EntryEditorSection(
+                form = form,
+                onTypeSelected = onTypeSelected,
+                onAmountChanged = onAmountChanged,
+                onCategoryChanged = onCategoryChanged,
+                onNoteChanged = onNoteChanged,
+                onSuggestedCategorySelected = onSuggestedCategorySelected,
+                onSaveClick = onSaveClick,
+                onCancelEditClick = onCancelEditClick,
+                onSaveTemplateClick = onSaveTemplateClick,
+                onScanReceiptClick = onScanReceiptClick,
+                isReceiptScanning = isReceiptScanning
+            )
+        }
+
+        item {
+            SectionHeading(
+                title = "\u6700\u8fd1\u8d26\u5355",
+                subtitle = if (recentEntries.isEmpty()) {
+                    "\u8fd8\u6ca1\u6709\u8bb0\u5f55\uff0c\u53ef\u4ee5\u5148\u5728\u4e0a\u65b9\u5feb\u901f\u8bb0\u4e00\u7b14"
+                } else {
+                    "\u6700\u8fd1 ${recentEntries.size} \u7b14\u8bb0\u5f55\uff0c\u53ef\u4ee5\u76f4\u63a5\u7f16\u8f91\u6216\u5220\u9664"
+                }
+            )
+        }
+
+        if (recentEntries.isEmpty()) {
+            item {
+                EmptyLedgerSection(
+                    title = "\u9996\u9875\u8fd8\u6ca1\u6709\u7b14\u8bb0\u5f55",
+                    subtitle = "\u5148\u4ece\u5feb\u901f\u8bb0\u8d26\u5f00\u59cb\uff0c\u4e4b\u540e\u8fd9\u91cc\u4f1a\u51fa\u73b0\u6700\u65b0\u8d26\u5355"
+                )
+            }
+        } else {
+            items(
+                items = recentEntries,
+                key = { entry -> entry.id }
+            ) { entry ->
+                LedgerEntryCard(
+                    entry = entry,
+                    onEditClick = { onEditClick(entry) },
+                    onDeleteClick = { onDeleteClick(entry) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatisticsBoard(
+    periodFilter: LedgerPeriodFilter,
+    typeFilter: LedgerEntryFilterType,
+    categoryFilter: String?,
+    categories: List<String>,
+    filteredEntries: List<LedgerEntry>,
+    filteredSummary: LedgerSummary,
+    trendPoints: List<TrendPoint>,
+    trendGranularity: LedgerTrendGranularity,
+    selectedCategory: String?,
+    detailEntries: List<LedgerEntry>,
+    onPeriodSelected: (LedgerPeriodFilter) -> Unit,
+    onTypeSelected: (LedgerEntryFilterType) -> Unit,
+    onCategorySelected: (String?) -> Unit,
+    onTrendGranularitySelected: (LedgerTrendGranularity) -> Unit,
+    onChartCategorySelected: (String) -> Unit,
+    onClearChartSelection: () -> Unit,
+    onEditClick: (LedgerEntry) -> Unit,
+    onDeleteClick: (LedgerEntry) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        item {
+            FilterSection(
+                periodFilter = periodFilter,
+                typeFilter = typeFilter,
+                categoryFilter = categoryFilter,
+                categories = categories,
+                onPeriodSelected = onPeriodSelected,
+                onTypeSelected = onTypeSelected,
+                onCategorySelected = onCategorySelected
+            )
+        }
+
+        item {
+            StatsSection(
+                summary = filteredSummary,
+                filteredEntries = filteredEntries,
+                trendPoints = trendPoints,
+                trendGranularity = trendGranularity,
+                selectedCategory = selectedCategory,
+                onTrendGranularitySelected = onTrendGranularitySelected,
+                onCategorySelected = onChartCategorySelected
+            )
+        }
+
+        item {
+            StatsDetailHeader(
+                selectedCategory = selectedCategory,
+                entryCount = detailEntries.size,
+                onClearSelection = onClearChartSelection
+            )
+        }
+
+        if (detailEntries.isEmpty()) {
+            item {
+                EmptyLedgerSection()
+            }
+        } else {
+            items(
+                items = detailEntries,
+                key = { entry -> entry.id }
+            ) { entry ->
+                LedgerEntryCard(
+                    entry = entry,
+                    onEditClick = { onEditClick(entry) },
+                    onDeleteClick = { onDeleteClick(entry) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BudgetBoard(
+    budgetConfig: LedgerBudgetConfig,
+    currentMonthEntries: List<LedgerEntry>,
+    budgetCategories: List<String>,
+    selectedCategory: String,
+    monthlyBudgetText: String,
+    categoryBudgetText: String,
+    onMonthlyBudgetChanged: (String) -> Unit,
+    onCategorySelected: (String) -> Unit,
+    onCategoryBudgetChanged: (String) -> Unit,
+    onSaveBudgetClick: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        item {
+            BudgetSection(
+                budgetConfig = budgetConfig,
+                currentMonthEntries = currentMonthEntries,
+                budgetCategories = budgetCategories,
+                selectedCategory = selectedCategory,
+                monthlyBudgetText = monthlyBudgetText,
+                categoryBudgetText = categoryBudgetText,
+                onMonthlyBudgetChanged = onMonthlyBudgetChanged,
+                onCategorySelected = onCategorySelected,
+                onCategoryBudgetChanged = onCategoryBudgetChanged,
+                onSaveBudgetClick = onSaveBudgetClick
+            )
+        }
+    }
+}
+
+@Composable
+private fun ToolsBoard(
+    templates: List<LedgerTemplate>,
+    onApplyTemplateClick: (LedgerTemplate) -> Unit,
+    onDeleteTemplateClick: (LedgerTemplate) -> Unit,
+    onExportClick: () -> Unit,
+    onImportClick: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        item {
+            TemplateSection(
+                templates = templates,
+                onApplyTemplateClick = onApplyTemplateClick,
+                onDeleteTemplateClick = onDeleteTemplateClick
+            )
+        }
+
+        item {
+            ToolSection(
+                onExportClick = onExportClick,
+                onImportClick = onImportClick
+            )
         }
     }
 }
@@ -666,7 +934,11 @@ private fun FilterSection(
 private fun StatsSection(
     summary: LedgerSummary,
     filteredEntries: List<LedgerEntry>,
-    trendPoints: List<TrendPoint>
+    trendPoints: List<TrendPoint>,
+    trendGranularity: LedgerTrendGranularity,
+    selectedCategory: String?,
+    onTrendGranularitySelected: (LedgerTrendGranularity) -> Unit,
+    onCategorySelected: (String) -> Unit
 ) {
     val topCategories = remember(filteredEntries) {
         buildCategoryBreakdown(filteredEntries)
@@ -684,7 +956,7 @@ private fun StatsSection(
         ) {
             SectionHeading(
                 title = "\u7edf\u8ba1\u89c6\u56fe",
-                subtitle = "\u7528\u6392\u540d\u548c\u8d8b\u52bf\u5feb\u901f\u770b\u51fa\u8d26\u76ee\u91cd\u5fc3"
+                subtitle = "\u7528\u56fe\u8868\u5bf9\u6bd4\u8d26\u76ee\u91cd\u5fc3\uff0c\u8fd8\u53ef\u4ee5\u70b9\u51fb\u805a\u7126\u660e\u7ec6"
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -702,6 +974,18 @@ private fun StatsSection(
                 )
             }
 
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Text(
+                    text = "\u70b9\u51fb\u4e0b\u65b9\u7684\u67f1\u72b6\u56fe\u3001\u997c\u56fe\u56fe\u4f8b\u6216\u6392\u540d\u6761\uff0c\u660e\u7ec6\u5217\u8868\u4f1a\u81ea\u52a8\u805a\u7126\u5230\u5bf9\u5e94\u5206\u7c7b\u3002",
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SectionEyebrow("\u5206\u7c7b\u56fe\u8868")
                 if (topCategories.isEmpty()) {
@@ -711,16 +995,44 @@ private fun StatsSection(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    CategoryPieChart(topCategories = topCategories)
-                    CategoryBarChart(topCategories = topCategories)
+                    CategoryPieChart(
+                        topCategories = topCategories,
+                        selectedCategory = selectedCategory,
+                        onCategorySelected = onCategorySelected
+                    )
+                    CategoryBarChart(
+                        topCategories = topCategories,
+                        selectedCategory = selectedCategory,
+                        onCategorySelected = onCategorySelected
+                    )
                     topCategories.forEach { categorySpend ->
-                        CategoryBreakdownRow(categorySpend = categorySpend, topAmount = topCategories.first().amountInCents)
+                        CategoryBreakdownRow(
+                            categorySpend = categorySpend,
+                            topAmount = topCategories.first().amountInCents,
+                            selected = categorySpend.category == selectedCategory,
+                            onClick = {
+                                onCategorySelected(categorySpend.category)
+                            }
+                        )
                     }
                 }
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionEyebrow("\u6708\u5ea6\u8d8b\u52bf")
+                SectionEyebrow("\u6536\u652f\u8d8b\u52bf")
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(LedgerTrendGranularity.entries.toList()) { granularity ->
+                        FilterChip(
+                            selected = granularity == trendGranularity,
+                            onClick = {
+                                onTrendGranularitySelected(granularity)
+                            },
+                            label = {
+                                Text(granularity.displayName())
+                            }
+                        )
+                    }
+                }
                 trendPoints.forEach { point ->
                     TrendRow(point = point)
                 }
@@ -730,67 +1042,92 @@ private fun StatsSection(
 }
 
 @Composable
-private fun CategoryPieChart(topCategories: List<CategorySpend>) {
+private fun CategoryPieChart(
+    topCategories: List<CategorySpend>,
+    selectedCategory: String?,
+    onCategorySelected: (String) -> Unit
+) {
     val totalAmount = remember(topCategories) {
         topCategories.sumOf { categorySpend -> categorySpend.amountInCents }
     }
 
-    Box(
-        modifier = Modifier.fillMaxWidth(),
-        contentAlignment = Alignment.Center
-    ) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(
-            modifier = Modifier.size(220.dp),
+            modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val strokeWidth = size.minDimension * 0.18f
-                val diameter = size.minDimension - strokeWidth
-                val topLeft = Offset(
-                    x = (size.width - diameter) / 2f,
-                    y = (size.height - diameter) / 2f
-                )
-                val arcSize = Size(diameter, diameter)
-                var startAngle = -90f
-
-                topCategories.forEachIndexed { index, categorySpend ->
-                    val sweepAngle = if (totalAmount <= 0L) {
-                        0f
-                    } else {
-                        categorySpend.amountInCents.toFloat() / totalAmount.toFloat() * 360f
-                    }
-
-                    drawArc(
-                        color = ChartPalette[index % ChartPalette.size],
-                        startAngle = startAngle,
-                        sweepAngle = sweepAngle,
-                        useCenter = false,
-                        topLeft = topLeft,
-                        size = arcSize,
-                        style = Stroke(width = strokeWidth)
+            Box(
+                modifier = Modifier.size(220.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val strokeWidth = size.minDimension * 0.18f
+                    val diameter = size.minDimension - strokeWidth
+                    val topLeft = Offset(
+                        x = (size.width - diameter) / 2f,
+                        y = (size.height - diameter) / 2f
                     )
-                    startAngle += sweepAngle
+                    val arcSize = Size(diameter, diameter)
+                    var startAngle = -90f
+
+                    topCategories.forEachIndexed { index, categorySpend ->
+                        val sweepAngle = if (totalAmount <= 0L) {
+                            0f
+                        } else {
+                            categorySpend.amountInCents.toFloat() / totalAmount.toFloat() * 360f
+                        }
+
+                        drawArc(
+                            color = ChartPalette[index % ChartPalette.size],
+                            startAngle = startAngle,
+                            sweepAngle = sweepAngle,
+                            useCenter = false,
+                            topLeft = topLeft,
+                            size = arcSize,
+                            style = Stroke(width = strokeWidth)
+                        )
+                        startAngle += sweepAngle
+                    }
+                }
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "\u652f\u51fa\u603b\u989d",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = formatCurrency(totalAmount),
+                        style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace),
+                        color = ExpenseTint
+                    )
+                    Text(
+                        text = "\u524d ${topCategories.size} \u4e2a\u5206\u7c7b",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
+        }
 
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = "\u652f\u51fa\u603b\u989d",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = formatCurrency(totalAmount),
-                    style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace),
-                    color = ExpenseTint
-                )
-                Text(
-                    text = "\u524d ${topCategories.size} \u4e2a\u5206\u7c7b",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(topCategories) { categorySpend ->
+                val percent = if (totalAmount <= 0L) {
+                    0
+                } else {
+                    (categorySpend.amountInCents * 100 / totalAmount).toInt()
+                }
+                FilterChip(
+                    selected = categorySpend.category == selectedCategory,
+                    onClick = {
+                        onCategorySelected(categorySpend.category)
+                    },
+                    label = {
+                        Text("${categorySpend.category} $percent%")
+                    }
                 )
             }
         }
@@ -798,7 +1135,11 @@ private fun CategoryPieChart(topCategories: List<CategorySpend>) {
 }
 
 @Composable
-private fun CategoryBarChart(topCategories: List<CategorySpend>) {
+private fun CategoryBarChart(
+    topCategories: List<CategorySpend>,
+    selectedCategory: String?,
+    onCategorySelected: (String) -> Unit
+) {
     val topAmount = remember(topCategories) {
         topCategories.maxOfOrNull { categorySpend -> categorySpend.amountInCents } ?: 0L
     }
@@ -815,6 +1156,7 @@ private fun CategoryBarChart(topCategories: List<CategorySpend>) {
             verticalAlignment = Alignment.Bottom
         ) {
             topCategories.forEachIndexed { index, categorySpend ->
+                val isSelected = categorySpend.category == selectedCategory
                 val ratio by animateFloatAsState(
                     targetValue = if (topAmount <= 0L) {
                         0f
@@ -826,7 +1168,11 @@ private fun CategoryBarChart(topCategories: List<CategorySpend>) {
                 )
 
                 Column(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            onCategorySelected(categorySpend.category)
+                        },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -841,12 +1187,20 @@ private fun CategoryBarChart(topCategories: List<CategorySpend>) {
                             .fillMaxWidth()
                             .height((128.dp * ratio.coerceAtLeast(0.16f)).coerceAtLeast(24.dp))
                             .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 8.dp, bottomEnd = 8.dp))
-                            .background(ChartPalette[index % ChartPalette.size])
+                            .background(
+                                ChartPalette[index % ChartPalette.size].copy(
+                                    alpha = if (isSelected) 1f else 0.72f
+                                )
+                            )
                     )
                     Text(
                         text = categorySpend.category,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = if (isSelected) {
+                            ExpenseTint
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
                         textAlign = TextAlign.Center
                     )
                 }
@@ -890,37 +1244,83 @@ private fun StatTile(
 }
 
 @Composable
+private fun StatsDetailHeader(
+    selectedCategory: String?,
+    entryCount: Int,
+    onClearSelection: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        SectionHeading(
+            title = if (selectedCategory == null) {
+                "\u7b5b\u9009\u660e\u7ec6"
+            } else {
+                "$selectedCategory \u660e\u7ec6"
+            },
+            subtitle = if (selectedCategory == null) {
+                "\u5f53\u524d\u7b5b\u9009\u4e0b\u5171 $entryCount \u7b14\uff0c\u70b9\u51fb\u56fe\u8868\u540e\u53ef\u6309\u5206\u7c7b\u805a\u7126"
+            } else {
+                "\u5f53\u524d\u805a\u7126\u5206\u7c7b\u4e0b\u5171 $entryCount \u7b14\uff0c\u53ef\u4ee5\u70b9\u51fb\u53f3\u4fa7\u6062\u590d\u5168\u90e8"
+            }
+        )
+        if (selectedCategory != null) {
+            TextButton(onClick = onClearSelection) {
+                Text("\u67e5\u770b\u5168\u90e8")
+            }
+        }
+    }
+}
+
+@Composable
 private fun CategoryBreakdownRow(
     categorySpend: CategorySpend,
-    topAmount: Long
+    topAmount: Long,
+    selected: Boolean,
+    onClick: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    Surface(
+        color = if (selected) {
+            ExpenseTint.copy(alpha = 0.08f)
+        } else {
+            Color.Transparent
+        },
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(
-                text = categorySpend.category,
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                text = formatCurrency(categorySpend.amountInCents),
-                style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
-                color = ExpenseTint
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = categorySpend.category,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = formatCurrency(categorySpend.amountInCents),
+                    style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
+                    color = ExpenseTint
+                )
+            }
+            LinearProgressIndicator(
+                progress = {
+                    if (topAmount <= 0L) 0f else categorySpend.amountInCents.toFloat() / topAmount.toFloat()
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(999.dp)),
+                color = ExpenseTint,
+                trackColor = ExpenseTint.copy(alpha = 0.12f)
             )
         }
-        LinearProgressIndicator(
-            progress = {
-                if (topAmount <= 0L) 0f else categorySpend.amountInCents.toFloat() / topAmount.toFloat()
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(8.dp)
-                .clip(RoundedCornerShape(999.dp)),
-            color = ExpenseTint,
-            trackColor = ExpenseTint.copy(alpha = 0.12f)
-        )
     }
 }
 
@@ -1583,7 +1983,10 @@ private fun SectionEyebrow(text: String) {
 }
 
 @Composable
-private fun EmptyLedgerSection() {
+private fun EmptyLedgerSection(
+    title: String = "\u8fd8\u6ca1\u6709\u7b26\u5408\u7b5b\u9009\u6761\u4ef6\u7684\u8bb0\u5f55",
+    subtitle: String = "\u4f60\u53ef\u4ee5\u653e\u5bbd\u7b5b\u9009\uff0c\u6216\u8005\u5148\u65b0\u589e\u4e00\u7b14\u6536\u652f\u3002"
+) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = EntryShape
@@ -1610,11 +2013,11 @@ private fun EmptyLedgerSection() {
                 }
             }
             Text(
-                text = "\u8fd8\u6ca1\u6709\u7b26\u5408\u7b5b\u9009\u6761\u4ef6\u7684\u8bb0\u5f55",
+                text = title,
                 style = MaterialTheme.typography.headlineLarge
             )
             Text(
-                text = "\u4f60\u53ef\u4ee5\u653e\u5bbd\u7b5b\u9009\uff0c\u6216\u8005\u5148\u65b0\u589e\u4e00\u7b14\u6536\u652f\u3002",
+                text = subtitle,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1749,6 +2152,43 @@ private data class TrendPoint(
     val maxAbsoluteValue: Long
 )
 
+private enum class LedgerBoard {
+    DASHBOARD,
+    STATS,
+    BUDGET,
+    TOOLS
+}
+
+private enum class LedgerTrendGranularity {
+    WEEK,
+    MONTH
+}
+
+private fun LedgerBoard.displayName(): String {
+    return when (this) {
+        LedgerBoard.DASHBOARD -> "\u9996\u9875"
+        LedgerBoard.STATS -> "\u7edf\u8ba1"
+        LedgerBoard.BUDGET -> "\u9884\u7b97"
+        LedgerBoard.TOOLS -> "\u5de5\u5177"
+    }
+}
+
+private fun LedgerBoard.subtitle(): String {
+    return when (this) {
+        LedgerBoard.DASHBOARD -> "\u4eea\u8868\u76d8\u3001\u5feb\u901f\u8bb0\u8d26\u548c\u6700\u8fd1\u8d26\u5355"
+        LedgerBoard.STATS -> "\u7b5b\u9009\u3001\u56fe\u8868\u4e0e\u660e\u7ec6\u8054\u52a8\u90fd\u5728\u8fd9\u4e00\u9875"
+        LedgerBoard.BUDGET -> "\u5355\u72ec\u7ba1\u7406\u6708\u9884\u7b97\u548c\u5206\u7c7b\u9884\u7b97"
+        LedgerBoard.TOOLS -> "\u5feb\u6377\u6a21\u677f\u3001\u5907\u4efd\u5bfc\u5165\u5bfc\u51fa\u5168\u90e8\u5728\u8fd9\u91cc"
+    }
+}
+
+private fun LedgerTrendGranularity.displayName(): String {
+    return when (this) {
+        LedgerTrendGranularity.WEEK -> "\u6309\u5468"
+        LedgerTrendGranularity.MONTH -> "\u6309\u6708"
+    }
+}
+
 private fun buildAvailableCategories(
     entries: List<LedgerEntry>,
     templates: List<LedgerTemplate>
@@ -1773,23 +2213,58 @@ private fun buildCategoryBreakdown(entries: List<LedgerEntry>): List<CategorySpe
         .take(4)
 }
 
-private fun buildTrendPoints(entries: List<LedgerEntry>): List<TrendPoint> {
+private fun buildTrendPoints(
+    entries: List<LedgerEntry>,
+    granularity: LedgerTrendGranularity
+): List<TrendPoint> {
     val zoneId = ZoneId.systemDefault()
-    val months = (0..5).map { offset ->
-        YearMonth.now(zoneId).minusMonths(offset.toLong())
-    }.reversed()
 
-    val points = months.map { month ->
-        val monthEntries = entries.filter { entry ->
-            val entryMonth = Instant.ofEpochMilli(entry.happenedAt).atZone(zoneId).toLocalDate().let(YearMonth::from)
-            entryMonth == month
+    val points = when (granularity) {
+        LedgerTrendGranularity.MONTH -> {
+            val months = (0..5).map { offset ->
+                YearMonth.now(zoneId).minusMonths(offset.toLong())
+            }.reversed()
+
+            months.map { month ->
+                val monthEntries = entries.filter { entry ->
+                    val entryMonth = Instant.ofEpochMilli(entry.happenedAt)
+                        .atZone(zoneId)
+                        .toLocalDate()
+                        .let(YearMonth::from)
+                    entryMonth == month
+                }
+                val summary = LedgerSummaryCalculator.calculate(monthEntries)
+                TrendPoint(
+                    label = "${month.monthValue}\u6708",
+                    netInCents = summary.balanceInCents,
+                    maxAbsoluteValue = 0L
+                )
+            }
         }
-        val summary = LedgerSummaryCalculator.calculate(monthEntries)
-        TrendPoint(
-            label = "${month.monthValue}\u6708",
-            netInCents = summary.balanceInCents,
-            maxAbsoluteValue = 0L
-        )
+
+        LedgerTrendGranularity.WEEK -> {
+            val today = LocalDate.now(zoneId)
+            val currentWeekStart = today.minusDays((today.dayOfWeek.value - 1).toLong())
+            val weeks = (0..7).map { offset ->
+                currentWeekStart.minusWeeks(offset.toLong())
+            }.reversed()
+
+            weeks.map { weekStart ->
+                val weekEnd = weekStart.plusDays(6)
+                val weekEntries = entries.filter { entry ->
+                    val entryDate = Instant.ofEpochMilli(entry.happenedAt)
+                        .atZone(zoneId)
+                        .toLocalDate()
+                    !entryDate.isBefore(weekStart) && !entryDate.isAfter(weekEnd)
+                }
+                val summary = LedgerSummaryCalculator.calculate(weekEntries)
+                TrendPoint(
+                    label = "${weekStart.monthValue}/${weekStart.dayOfMonth}",
+                    netInCents = summary.balanceInCents,
+                    maxAbsoluteValue = 0L
+                )
+            }
+        }
     }
 
     val maxAbsolute = points.maxOfOrNull { point -> point.netInCents.absoluteValue } ?: 0L
