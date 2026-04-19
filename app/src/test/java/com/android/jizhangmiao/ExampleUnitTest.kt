@@ -4,7 +4,11 @@ import com.android.jizhangmiao.ledger.LedgerSummaryCalculator
 import com.android.jizhangmiao.ledger.parseReceiptText
 import com.android.jizhangmiao.ledger.data.LedgerEntry
 import com.android.jizhangmiao.ledger.data.LedgerEntryType
+import com.android.jizhangmiao.ledger.data.LedgerTemplate
+import com.android.jizhangmiao.ledger.data.LedgerTemplateRecurrence
+import com.android.jizhangmiao.ledger.data.syncRecurringTemplates
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 
@@ -58,5 +62,34 @@ class ExampleUnitTest {
         assertEquals("18.8", result?.amountInput)
         assertEquals("\u65e5\u7528", result?.category)
         assertEquals(LedgerEntryType.EXPENSE, result?.type)
+    }
+
+    @Test
+    fun syncRecurringTemplates_generatesDueEntriesAndAdvancesTemplate() {
+        val weekInMillis = 7L * 24 * 60 * 60 * 1000
+        val now = 1_710_000_000_000L
+        val template = LedgerTemplate(
+            title = "\u623f\u79df",
+            type = LedgerEntryType.EXPENSE,
+            amountInCents = 3_500_00L,
+            account = "\u5fae\u4fe1",
+            category = "\u4f4f\u623f",
+            recurrence = LedgerTemplateRecurrence.WEEKLY,
+            nextDueAt = now - (2 * weekInMillis),
+            note = "\u81ea\u52a8\u6263\u6b3e"
+        )
+
+        val result = syncRecurringTemplates(
+            entries = emptyList(),
+            templates = listOf(template),
+            now = now
+        )
+
+        assertEquals(3, result.generatedCount)
+        assertEquals(3, result.entries.size)
+        assertTrue(result.entries.all { entry -> entry.account == "\u5fae\u4fe1" })
+        assertTrue(result.entries.all { entry -> entry.category == "\u4f4f\u623f" })
+        assertTrue(result.templates.first().nextDueAt != null)
+        assertTrue(result.templates.first().nextDueAt!! > now)
     }
 }

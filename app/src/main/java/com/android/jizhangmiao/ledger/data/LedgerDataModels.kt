@@ -2,6 +2,8 @@ package com.android.jizhangmiao.ledger.data
 
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.time.Instant
+import java.time.ZoneId
 import java.util.UUID
 
 enum class LedgerEntryType {
@@ -9,10 +11,26 @@ enum class LedgerEntryType {
     INCOME
 }
 
+enum class LedgerTemplateRecurrence {
+    NONE,
+    WEEKLY,
+    MONTHLY
+}
+
+val ledgerAccountSuggestions = listOf(
+    "\u652f\u4ed8\u5b9d",
+    "\u5fae\u4fe1",
+    "\u94f6\u884c\u5361",
+    "\u73b0\u91d1"
+)
+
+fun defaultLedgerAccount(): String = ledgerAccountSuggestions.first()
+
 data class LedgerEntry(
     val id: String = UUID.randomUUID().toString(),
     val type: LedgerEntryType,
     val amountInCents: Long,
+    val account: String = defaultLedgerAccount(),
     val category: String,
     val note: String = "",
     val receiptText: String = "",
@@ -25,7 +43,10 @@ data class LedgerTemplate(
     val title: String,
     val type: LedgerEntryType,
     val amountInCents: Long,
+    val account: String = defaultLedgerAccount(),
     val category: String,
+    val recurrence: LedgerTemplateRecurrence = LedgerTemplateRecurrence.NONE,
+    val nextDueAt: Long? = null,
     val note: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )
@@ -69,4 +90,65 @@ fun Long.toAmountInput(): String {
     return BigDecimal.valueOf(this, 2)
         .stripTrailingZeros()
         .toPlainString()
+}
+
+data class RecurringSyncResult(
+    val entries: List<LedgerEntry>,
+    val templates: List<LedgerTemplate>,
+    val generatedCount: Int
+)
+
+fun nextRecurringDueAt(
+    baseTimeMillis: Long,
+    recurrence: LedgerTemplateRecurrence
+): Long? {
+    val zoneId = ZoneId.systemDefault()
+    val baseDateTime = Instant.ofEpochMilli(baseTimeMillis).atZone(zoneId)
+    return when (recurrence) {
+        LedgerTemplateRecurrence.NONE -> null
+        LedgerTemplateRecurrence.WEEKLY -> baseDateTime.plusWeeks(1).toInstant().toEpochMilli()
+        LedgerTemplateRecurrence.MONTHLY -> baseDateTime.plusMonths(1).toInstant().toEpochMilli()
+    }
+}
+
+fun initialTemplateNextDueAt(
+    fromTimeMillis: Long,
+    recurrence: LedgerTemplateRecurrence
+): Long? = nextRecurringDueAt(fromTimeMillis, recurrence)
+
+fun syncRecurringTemplates(
+    entries: List<LedgerEntry>,
+    templates: List<LedgerTemplate>,
+    now: Long = System.currentTimeMillis()
+): RecurringSyncResult {
+    val generatedEntries = mutableListOf<LedgerEntry>()
+    val updatedTemplates = templates.map { template ->
+        if (template.recurrence == LedgerTemplateRecurrence.NONE) {
+            template.copy(nextDueAt = null)
+        } else {
+            var nextDueAt = template.nextDueAt ?: initialTemplateNextDueAt(now, template.recurrence)
+            while (nextDueAt != null && nextDueAt <= now) {
+                generatedEntries += LedgerEntry(
+                    type = template.type,
+                    amountInCents = template.amountInCents,
+                    account = template.account.ifBlank { defaultLedgerAccount() },
+                    category = template.category,
+                    note = template.note,
+                    happenedAt = nextDueAt,
+                    updatedAt = nextDueAt
+                )
+                nextDueAt = nextRecurringDueAt(nextDueAt, template.recurrence)
+            }
+            template.copy(
+                account = template.account.ifBlank { defaultLedgerAccount() },
+                nextDueAt = nextDueAt
+            )
+        }
+    }
+
+    return RecurringSyncResult(
+        entries = entries + generatedEntries,
+        templates = updatedTemplates,
+        generatedCount = generatedEntries.size
+    )
 }

@@ -11,6 +11,9 @@ import com.android.jizhangmiao.ledger.data.LedgerEntry
 import com.android.jizhangmiao.ledger.data.LedgerEntryType
 import com.android.jizhangmiao.ledger.data.LedgerStore
 import com.android.jizhangmiao.ledger.data.LedgerTemplate
+import com.android.jizhangmiao.ledger.data.LedgerTemplateRecurrence
+import com.android.jizhangmiao.ledger.data.defaultLedgerAccount
+import com.android.jizhangmiao.ledger.data.initialTemplateNextDueAt
 import com.android.jizhangmiao.ledger.data.sanitizeAmountInput
 import com.android.jizhangmiao.ledger.data.toAmountInCents
 import com.android.jizhangmiao.ledger.data.toAmountInput
@@ -37,6 +40,15 @@ class LedgerViewModel(
     private val formState = MutableStateFlow(LedgerFormState())
     private val statusMessage = MutableStateFlow<String?>(null)
     private val scanningState = MutableStateFlow(false)
+
+    init {
+        viewModelScope.launch {
+            val generatedCount = ledgerStore.syncRecurringTemplates()
+            if (generatedCount > 0) {
+                statusMessage.value = "\u5df2\u81ea\u52a8\u8865\u5165 $generatedCount \u7b14\u5230\u671f\u7684\u5468\u671f\u8d26\u5355"
+            }
+        }
+    }
 
     val uiState: StateFlow<LedgerUiState> = combine(
         combine(
@@ -101,6 +113,15 @@ class LedgerViewModel(
         }
     }
 
+    fun onAccountChanged(value: String) {
+        formState.update { current ->
+            current.copy(
+                account = value.take(12),
+                errorMessage = null
+            )
+        }
+    }
+
     fun onNoteChanged(value: String) {
         formState.update { current ->
             current.copy(
@@ -119,11 +140,30 @@ class LedgerViewModel(
         }
     }
 
+    fun onSuggestedAccountSelected(account: String) {
+        formState.update { current ->
+            current.copy(
+                account = account,
+                errorMessage = null
+            )
+        }
+    }
+
+    fun onTemplateRecurrenceSelected(recurrence: LedgerTemplateRecurrence) {
+        formState.update { current ->
+            current.copy(
+                templateRecurrence = recurrence,
+                errorMessage = null
+            )
+        }
+    }
+
     fun startEditing(entry: LedgerEntry) {
         formState.value = LedgerFormState(
             editingEntryId = entry.id,
             type = entry.type,
             amount = entry.amountInCents.toAmountInput(),
+            account = entry.account,
             category = entry.category,
             note = entry.note,
             receiptText = entry.receiptText
@@ -138,11 +178,17 @@ class LedgerViewModel(
     fun saveEntry() {
         val snapshot = formState.value
         val amountInCents = snapshot.amount.toAmountInCents()
+        val account = snapshot.account.trim()
         val category = snapshot.category.trim()
 
         when {
             amountInCents == null -> {
                 showFormError("\u8bf7\u8f93\u5165\u5927\u4e8e 0 \u7684\u91d1\u989d")
+                return
+            }
+
+            account.isBlank() -> {
+                showFormError("\u8bf7\u8f93\u5165\u8d26\u6237")
                 return
             }
 
@@ -162,6 +208,7 @@ class LedgerViewModel(
                     LedgerEntry(
                         type = snapshot.type,
                         amountInCents = amountInCents,
+                        account = account,
                         category = category,
                         note = snapshot.note.trim(),
                         receiptText = snapshot.receiptText.trim()
@@ -173,6 +220,7 @@ class LedgerViewModel(
                     existingEntry.copy(
                         type = snapshot.type,
                         amountInCents = amountInCents,
+                        account = account,
                         category = category,
                         note = snapshot.note.trim(),
                         receiptText = snapshot.receiptText.trim()
@@ -198,11 +246,17 @@ class LedgerViewModel(
     fun saveCurrentAsTemplate() {
         val snapshot = formState.value
         val amountInCents = snapshot.amount.toAmountInCents()
+        val account = snapshot.account.trim()
         val category = snapshot.category.trim()
 
         when {
             amountInCents == null -> {
                 showFormError("\u5148\u586b\u597d\u91d1\u989d\uff0c\u518d\u4fdd\u5b58\u4e3a\u6a21\u677f")
+                return
+            }
+
+            account.isBlank() -> {
+                showFormError("\u5148\u9009\u597d\u8d26\u6237\uff0c\u518d\u4fdd\u5b58\u4e3a\u6a21\u677f")
                 return
             }
 
@@ -219,11 +273,21 @@ class LedgerViewModel(
                     title = title,
                     type = snapshot.type,
                     amountInCents = amountInCents,
+                    account = account,
                     category = category,
+                    recurrence = snapshot.templateRecurrence,
+                    nextDueAt = initialTemplateNextDueAt(
+                        fromTimeMillis = System.currentTimeMillis(),
+                        recurrence = snapshot.templateRecurrence
+                    ),
                     note = snapshot.note.trim()
                 )
             )
-            statusMessage.value = "\u5df2\u4fdd\u5b58\u4e3a\u5feb\u6377\u6a21\u677f"
+            statusMessage.value = if (snapshot.templateRecurrence == LedgerTemplateRecurrence.NONE) {
+                "\u5df2\u4fdd\u5b58\u4e3a\u5feb\u6377\u6a21\u677f"
+            } else {
+                "\u5df2\u4fdd\u5b58\u4e3a${snapshot.templateRecurrence.displayName()}\u5468\u671f\u6a21\u677f"
+            }
         }
     }
 
@@ -231,8 +295,10 @@ class LedgerViewModel(
         formState.value = LedgerFormState(
             type = template.type,
             amount = template.amountInCents.toAmountInput(),
+            account = template.account,
             category = template.category,
-            note = template.note
+            note = template.note,
+            templateRecurrence = template.recurrence
         )
         statusMessage.value = "\u5df2\u5e94\u7528\u6a21\u677f\uff0c\u53ef\u4ee5\u76f4\u63a5\u4fdd\u5b58\u6216\u518d\u5fae\u8c03"
     }
@@ -293,8 +359,13 @@ class LedgerViewModel(
                 ledgerStore.importBackupJson(backupJson)
             }.onSuccess { imported ->
                 if (imported) {
+                    val generatedCount = ledgerStore.syncRecurringTemplates()
                     resetForm()
-                    statusMessage.value = "\u5907\u4efd\u5df2\u5bfc\u5165"
+                    statusMessage.value = if (generatedCount > 0) {
+                        "\u5907\u4efd\u5df2\u5bfc\u5165\uff0c\u5e76\u8865\u5165 $generatedCount \u7b14\u5468\u671f\u8d26\u5355"
+                    } else {
+                        "\u5907\u4efd\u5df2\u5bfc\u5165"
+                    }
                 } else {
                     statusMessage.value = "\u5907\u4efd\u683c\u5f0f\u4e0d\u6b63\u786e"
                 }
@@ -318,6 +389,7 @@ class LedgerViewModel(
                             editingEntryId = null,
                             type = result.type ?: current.type,
                             amount = result.amountInput ?: current.amount,
+                            account = current.account.ifBlank { defaultLedgerAccount() },
                             category = result.category ?: current.category,
                             note = if (current.note.isBlank()) result.suggestedNote.take(80) else current.note,
                             receiptText = result.rawText,
@@ -346,6 +418,7 @@ class LedgerViewModel(
     private fun resetForm(type: LedgerEntryType = LedgerEntryType.EXPENSE) {
         formState.value = LedgerFormState(
             type = type,
+            account = defaultLedgerAccount(),
             category = defaultCategoryFor(type)
         )
     }

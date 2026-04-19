@@ -1,9 +1,12 @@
 package com.android.jizhangmiao.ledger
 
 import com.android.jizhangmiao.ledger.data.LedgerBudgetConfig
+import com.android.jizhangmiao.ledger.data.LedgerTemplateRecurrence
 import com.android.jizhangmiao.ledger.data.LedgerEntry
 import com.android.jizhangmiao.ledger.data.LedgerEntryType
 import com.android.jizhangmiao.ledger.data.LedgerTemplate
+import com.android.jizhangmiao.ledger.data.defaultLedgerAccount
+import com.android.jizhangmiao.ledger.data.ledgerAccountSuggestions
 
 enum class LedgerPeriodFilter {
     THIS_MONTH,
@@ -79,6 +82,8 @@ fun categorySuggestionsFor(type: LedgerEntryType): List<String> {
 
 fun defaultCategoryFor(type: LedgerEntryType): String = categorySuggestionsFor(type).first()
 
+fun accountSuggestions(): List<String> = ledgerAccountSuggestions
+
 fun LedgerEntryType.displayName(): String {
     return when (this) {
         LedgerEntryType.EXPENSE -> "\u652f\u51fa"
@@ -102,12 +107,22 @@ fun LedgerEntryFilterType.displayName(): String {
     }
 }
 
+fun LedgerTemplateRecurrence.displayName(): String {
+    return when (this) {
+        LedgerTemplateRecurrence.NONE -> "\u4e0d\u5faa\u73af"
+        LedgerTemplateRecurrence.WEEKLY -> "\u6bcf\u5468"
+        LedgerTemplateRecurrence.MONTHLY -> "\u6bcf\u6708"
+    }
+}
+
 data class LedgerFormState(
     val editingEntryId: String? = null,
     val type: LedgerEntryType = LedgerEntryType.EXPENSE,
     val amount: String = "",
+    val account: String = defaultLedgerAccount(),
     val category: String = defaultCategoryFor(LedgerEntryType.EXPENSE),
     val note: String = "",
+    val templateRecurrence: LedgerTemplateRecurrence = LedgerTemplateRecurrence.NONE,
     val receiptText: String = "",
     val errorMessage: String? = null
 ) {

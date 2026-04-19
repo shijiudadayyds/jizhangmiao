@@ -11,8 +11,8 @@ android {
         applicationId = "com.android.jizhangmiao"
         minSdk = 28
         targetSdk = 36
-        versionCode = 101
-        versionName = "1.01"
+        versionCode = 102
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

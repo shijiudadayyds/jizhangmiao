@@ -28,6 +28,7 @@ class LedgerStore private constructor(
         updateEntries { current ->
             current + entry.copy(
                 id = entry.id.ifBlank { UUID.randomUUID().toString() },
+                account = entry.account.ifBlank { defaultLedgerAccount() },
                 updatedAt = System.currentTimeMillis()
             )
         }
@@ -37,7 +38,10 @@ class LedgerStore private constructor(
         updateEntries { current ->
             current.map { savedEntry ->
                 if (savedEntry.id == entry.id) {
-                    entry.copy(updatedAt = System.currentTimeMillis())
+                    entry.copy(
+                        account = entry.account.ifBlank { defaultLedgerAccount() },
+                        updatedAt = System.currentTimeMillis()
+                    )
                 } else {
                     savedEntry
                 }
@@ -54,7 +58,15 @@ class LedgerStore private constructor(
     suspend fun upsertTemplate(template: LedgerTemplate) {
         updateTemplates { current ->
             current.filterNot { savedTemplate -> savedTemplate.id == template.id } +
-                template.copy(id = template.id.ifBlank { UUID.randomUUID().toString() })
+                template.copy(
+                    id = template.id.ifBlank { UUID.randomUUID().toString() },
+                    account = template.account.ifBlank { defaultLedgerAccount() },
+                    nextDueAt = if (template.recurrence == LedgerTemplateRecurrence.NONE) {
+                        null
+                    } else {
+                        template.nextDueAt
+                    }
+                )
         }
     }
 
@@ -84,12 +96,35 @@ class LedgerStore private constructor(
 
     fun exportBackupJson(): String {
         return JSONObject().apply {
-            put("version", 1)
+            put("version", 2)
             put("exportedAt", System.currentTimeMillis())
             put("entries", encodeEntries(_entries.value))
             put("templates", encodeTemplates(_templates.value))
             put("budgetConfig", encodeBudgetConfig(_budgetConfig.value))
         }.toString(2)
+    }
+
+    suspend fun syncRecurringTemplates(now: Long = System.currentTimeMillis()): Int {
+        return withContext(Dispatchers.IO) {
+            synchronized(writeLock) {
+                val result = syncRecurringTemplates(
+                    entries = _entries.value,
+                    templates = _templates.value,
+                    now = now
+                )
+                val entriesChanged = result.entries != _entries.value
+                val templatesChanged = result.templates != _templates.value
+                if (entriesChanged || templatesChanged) {
+                    val updatedEntries = normalizeEntries(result.entries)
+                    val updatedTemplates = normalizeTemplates(result.templates)
+                    persistEntries(updatedEntries)
+                    persistTemplates(updatedTemplates)
+                    _entries.value = updatedEntries
+                    _templates.value = updatedTemplates
+                }
+                result.generatedCount
+            }
+        }
     }
 
     suspend fun importBackupJson(json: String): Boolean {
@@ -229,6 +264,7 @@ class LedgerStore private constructor(
                         put("id", entry.id)
                         put("type", entry.type.name)
                         put("amountInCents", entry.amountInCents)
+                        put("account", entry.account)
                         put("category", entry.category)
                         put("note", entry.note)
                         put("receiptText", entry.receiptText)
@@ -249,7 +285,12 @@ class LedgerStore private constructor(
                         put("title", template.title)
                         put("type", template.type.name)
                         put("amountInCents", template.amountInCents)
+                        put("account", template.account)
                         put("category", template.category)
+                        put("recurrence", template.recurrence.name)
+                        template.nextDueAt?.let { nextDueAt ->
+                            put("nextDueAt", nextDueAt)
+                        }
                         put("note", template.note)
                         put("createdAt", template.createdAt)
                     }
@@ -287,6 +328,7 @@ class LedgerStore private constructor(
                         id = item.optString("id"),
                         type = LedgerEntryType.valueOf(item.getString("type")),
                         amountInCents = item.getLong("amountInCents"),
+                        account = item.optString("account").ifBlank { defaultLedgerAccount() },
                         category = item.getString("category"),
                         note = item.optString("note"),
                         receiptText = item.optString("receiptText"),
@@ -312,7 +354,15 @@ class LedgerStore private constructor(
                         title = item.optString("title"),
                         type = LedgerEntryType.valueOf(item.getString("type")),
                         amountInCents = item.getLong("amountInCents"),
+                        account = item.optString("account").ifBlank { defaultLedgerAccount() },
                         category = item.getString("category"),
+                        recurrence = item.optString("recurrence")
+                            .takeIf { value -> value.isNotBlank() }
+                            ?.let(LedgerTemplateRecurrence::valueOf)
+                            ?: LedgerTemplateRecurrence.NONE,
+                        nextDueAt = item.optLong("nextDueAt").takeIf {
+                            item.has("nextDueAt")
+                        },
                         note = item.optString("note"),
                         createdAt = item.optLong("createdAt", System.currentTimeMillis())
                     )

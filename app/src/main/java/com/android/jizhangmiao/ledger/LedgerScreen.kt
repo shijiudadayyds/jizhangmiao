@@ -78,6 +78,7 @@ import com.android.jizhangmiao.ledger.data.LedgerBudgetConfig
 import com.android.jizhangmiao.ledger.data.LedgerEntry
 import com.android.jizhangmiao.ledger.data.LedgerEntryType
 import com.android.jizhangmiao.ledger.data.LedgerTemplate
+import com.android.jizhangmiao.ledger.data.LedgerTemplateRecurrence
 import com.android.jizhangmiao.ledger.data.toAmountInput
 import java.text.NumberFormat
 import java.time.Instant
@@ -110,9 +111,12 @@ fun LedgerScreen(
     uiState: LedgerUiState,
     onTypeSelected: (LedgerEntryType) -> Unit,
     onAmountChanged: (String) -> Unit,
+    onAccountChanged: (String) -> Unit,
     onCategoryChanged: (String) -> Unit,
     onNoteChanged: (String) -> Unit,
+    onSuggestedAccountSelected: (String) -> Unit,
     onSuggestedCategorySelected: (String) -> Unit,
+    onTemplateRecurrenceSelected: (LedgerTemplateRecurrence) -> Unit,
     onSaveClick: () -> Unit,
     onCancelEditClick: () -> Unit,
     onDeleteClick: (LedgerEntry) -> Unit,
@@ -128,6 +132,7 @@ fun LedgerScreen(
 ) {
     var periodFilterName by rememberSaveable { mutableStateOf(LedgerPeriodFilter.THIS_MONTH.name) }
     var typeFilterName by rememberSaveable { mutableStateOf(LedgerEntryFilterType.ALL.name) }
+    var accountFilter by rememberSaveable { mutableStateOf("") }
     var categoryFilter by rememberSaveable { mutableStateOf("") }
     var budgetCategory by rememberSaveable { mutableStateOf(defaultCategoryFor(LedgerEntryType.EXPENSE)) }
     var trendGranularityName by rememberSaveable { mutableStateOf(LedgerTrendGranularity.MONTH.name) }
@@ -158,11 +163,12 @@ fun LedgerScreen(
     val pagerState = rememberPagerState(pageCount = { boards.size })
     val coroutineScope = rememberCoroutineScope()
 
-    val filteredEntries = remember(uiState.entries, periodFilter, typeFilter, categoryFilter) {
+    val filteredEntries = remember(uiState.entries, periodFilter, typeFilter, accountFilter, categoryFilter) {
         filterEntries(
             entries = uiState.entries,
             periodFilter = periodFilter,
             typeFilter = typeFilter,
+            account = accountFilter.ifBlank { null },
             category = categoryFilter.ifBlank { null }
         )
     }
@@ -177,6 +183,7 @@ fun LedgerScreen(
             entries = uiState.entries,
             periodFilter = LedgerPeriodFilter.THIS_MONTH,
             typeFilter = LedgerEntryFilterType.ALL,
+            account = null,
             category = null
         )
     }
@@ -192,8 +199,14 @@ fun LedgerScreen(
     val availableCategories = remember(uiState.entries, uiState.templates) {
         buildAvailableCategories(uiState.entries, uiState.templates)
     }
+    val availableAccounts = remember(uiState.entries, uiState.templates) {
+        buildAvailableAccounts(uiState.entries, uiState.templates)
+    }
     val recentEntries = remember(uiState.entries) {
         uiState.entries.take(6)
+    }
+    val accountSnapshots = remember(uiState.entries) {
+        buildAccountSnapshots(uiState.entries)
     }
     val budgetCategories = remember(availableCategories) {
         if (availableCategories.isEmpty()) {
@@ -353,15 +366,19 @@ fun LedgerScreen(
                                 budgetConfig = uiState.budgetConfig,
                                 currentMonthSummary = currentMonthSummary,
                                 topCategories = currentMonthTopCategories,
+                                accountSnapshots = accountSnapshots,
                                 totalRecordCount = uiState.entries.size,
                                 recentEntries = recentEntries,
                                 form = uiState.form,
                                 isReceiptScanning = uiState.isReceiptScanning,
                                 onTypeSelected = onTypeSelected,
                                 onAmountChanged = onAmountChanged,
+                                onAccountChanged = onAccountChanged,
                                 onCategoryChanged = onCategoryChanged,
                                 onNoteChanged = onNoteChanged,
+                                onSuggestedAccountSelected = onSuggestedAccountSelected,
                                 onSuggestedCategorySelected = onSuggestedCategorySelected,
+                                onTemplateRecurrenceSelected = onTemplateRecurrenceSelected,
                                 onSaveClick = onSaveClick,
                                 onCancelEditClick = onCancelEditClick,
                                 onSaveTemplateClick = onSaveTemplateClick,
@@ -373,6 +390,7 @@ fun LedgerScreen(
                                 onViewAllEntriesClick = {
                                     periodFilterName = LedgerPeriodFilter.ALL.name
                                     typeFilterName = LedgerEntryFilterType.ALL.name
+                                    accountFilter = ""
                                     categoryFilter = ""
                                     chartDetailCategory = ""
                                     chartDetailTypeName = ""
@@ -383,7 +401,9 @@ fun LedgerScreen(
                             LedgerBoard.STATS -> StatisticsBoard(
                                 periodFilter = periodFilter,
                                 typeFilter = typeFilter,
+                                accountFilter = accountFilter.ifBlank { null },
                                 categoryFilter = categoryFilter.ifBlank { null },
+                                accounts = availableAccounts,
                                 categories = availableCategories,
                                 filteredEntries = filteredEntries,
                                 filteredSummary = filteredSummary,
@@ -396,6 +416,9 @@ fun LedgerScreen(
                                 },
                                 onTypeSelected = { selectedFilter ->
                                     typeFilterName = selectedFilter.name
+                                },
+                                onAccountSelected = { selectedAccount ->
+                                    accountFilter = selectedAccount.orEmpty()
                                 },
                                 onCategorySelected = { selectedCategory ->
                                     categoryFilter = selectedCategory.orEmpty()
@@ -466,7 +489,9 @@ fun LedgerScreen(
                             LedgerBoard.LEDGER -> LedgerBoardPage(
                                 periodFilter = periodFilter,
                                 typeFilter = typeFilter,
+                                accountFilter = accountFilter.ifBlank { null },
                                 categoryFilter = categoryFilter.ifBlank { null },
+                                accounts = availableAccounts,
                                 categories = availableCategories,
                                 filteredEntries = filteredEntries,
                                 onPeriodSelected = { selectedFilter ->
@@ -474,6 +499,9 @@ fun LedgerScreen(
                                 },
                                 onTypeSelected = { selectedFilter ->
                                     typeFilterName = selectedFilter.name
+                                },
+                                onAccountSelected = { selectedAccount ->
+                                    accountFilter = selectedAccount.orEmpty()
                                 },
                                 onCategorySelected = { selectedCategory ->
                                     categoryFilter = selectedCategory.orEmpty()
@@ -498,15 +526,19 @@ private fun DashboardBoard(
     budgetConfig: LedgerBudgetConfig,
     currentMonthSummary: LedgerSummary,
     topCategories: List<CategorySpend>,
+    accountSnapshots: List<AccountSnapshot>,
     totalRecordCount: Int,
     recentEntries: List<LedgerEntry>,
     form: LedgerFormState,
     isReceiptScanning: Boolean,
     onTypeSelected: (LedgerEntryType) -> Unit,
     onAmountChanged: (String) -> Unit,
+    onAccountChanged: (String) -> Unit,
     onCategoryChanged: (String) -> Unit,
     onNoteChanged: (String) -> Unit,
+    onSuggestedAccountSelected: (String) -> Unit,
     onSuggestedCategorySelected: (String) -> Unit,
+    onTemplateRecurrenceSelected: (LedgerTemplateRecurrence) -> Unit,
     onSaveClick: () -> Unit,
     onCancelEditClick: () -> Unit,
     onSaveTemplateClick: () -> Unit,
@@ -535,15 +567,22 @@ private fun DashboardBoard(
                 form = form,
                 onTypeSelected = onTypeSelected,
                 onAmountChanged = onAmountChanged,
+                onAccountChanged = onAccountChanged,
                 onCategoryChanged = onCategoryChanged,
                 onNoteChanged = onNoteChanged,
+                onSuggestedAccountSelected = onSuggestedAccountSelected,
                 onSuggestedCategorySelected = onSuggestedCategorySelected,
+                onTemplateRecurrenceSelected = onTemplateRecurrenceSelected,
                 onSaveClick = onSaveClick,
                 onCancelEditClick = onCancelEditClick,
                 onSaveTemplateClick = onSaveTemplateClick,
                 onScanReceiptClick = onScanReceiptClick,
                 isReceiptScanning = isReceiptScanning
             )
+        }
+
+        item {
+            AccountOverviewSection(accountSnapshots = accountSnapshots)
         }
 
         item {
@@ -681,11 +720,14 @@ private fun BoardPageContainer(
 private fun LedgerBoardPage(
     periodFilter: LedgerPeriodFilter,
     typeFilter: LedgerEntryFilterType,
+    accountFilter: String?,
     categoryFilter: String?,
+    accounts: List<String>,
     categories: List<String>,
     filteredEntries: List<LedgerEntry>,
     onPeriodSelected: (LedgerPeriodFilter) -> Unit,
     onTypeSelected: (LedgerEntryFilterType) -> Unit,
+    onAccountSelected: (String?) -> Unit,
     onCategorySelected: (String?) -> Unit,
     onEditClick: (LedgerEntry) -> Unit,
     onDeleteClick: (LedgerEntry) -> Unit
@@ -699,10 +741,13 @@ private fun LedgerBoardPage(
             FilterSection(
                 periodFilter = periodFilter,
                 typeFilter = typeFilter,
+                accountFilter = accountFilter,
                 categoryFilter = categoryFilter,
+                accounts = accounts,
                 categories = categories,
                 onPeriodSelected = onPeriodSelected,
                 onTypeSelected = onTypeSelected,
+                onAccountSelected = onAccountSelected,
                 onCategorySelected = onCategorySelected
             )
         }
@@ -741,7 +786,9 @@ private fun LedgerBoardPage(
 private fun StatisticsBoard(
     periodFilter: LedgerPeriodFilter,
     typeFilter: LedgerEntryFilterType,
+    accountFilter: String?,
     categoryFilter: String?,
+    accounts: List<String>,
     categories: List<String>,
     filteredEntries: List<LedgerEntry>,
     filteredSummary: LedgerSummary,
@@ -751,6 +798,7 @@ private fun StatisticsBoard(
     detailEntries: List<LedgerEntry>,
     onPeriodSelected: (LedgerPeriodFilter) -> Unit,
     onTypeSelected: (LedgerEntryFilterType) -> Unit,
+    onAccountSelected: (String?) -> Unit,
     onCategorySelected: (String?) -> Unit,
     onTrendGranularitySelected: (LedgerTrendGranularity) -> Unit,
     onChartCategorySelected: (LedgerEntryType, String) -> Unit,
@@ -767,10 +815,13 @@ private fun StatisticsBoard(
             FilterSection(
                 periodFilter = periodFilter,
                 typeFilter = typeFilter,
+                accountFilter = accountFilter,
                 categoryFilter = categoryFilter,
+                accounts = accounts,
                 categories = categories,
                 onPeriodSelected = onPeriodSelected,
                 onTypeSelected = onTypeSelected,
+                onAccountSelected = onAccountSelected,
                 onCategorySelected = onCategorySelected
             )
         }
@@ -1085,13 +1136,93 @@ private fun HeroMetric(
 }
 
 @Composable
+private fun AccountOverviewSection(accountSnapshots: List<AccountSnapshot>) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = SectionShape
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            SectionHeading(
+                title = "\u8d26\u6237\u770b\u677f",
+                subtitle = if (accountSnapshots.isEmpty()) {
+                    "\u8fd8\u6ca1\u6709\u53ef\u89c2\u5bdf\u7684\u8d26\u6237\u6570\u636e"
+                } else {
+                    "\u770b\u6e05\u6bcf\u4e2a\u8d26\u6237\u7684\u6d41\u5165\u3001\u6d41\u51fa\u548c\u5f53\u524d\u7ed3\u4f59"
+                }
+            )
+
+            if (accountSnapshots.isEmpty()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(22.dp)
+                ) {
+                    Text(
+                        text = "\u4f60\u53ef\u4ee5\u5728\u8bb0\u8d26\u65f6\u533a\u5206\u5fae\u4fe1\u3001\u652f\u4ed8\u5b9d\u3001\u94f6\u884c\u5361\u6216\u73b0\u91d1\uff0c\u540e\u9762\u8fd9\u91cc\u5c31\u4f1a\u5f62\u6210\u8d26\u6237\u89c6\u56fe\u3002",
+                        modifier = Modifier.padding(14.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(accountSnapshots, key = { snapshot -> snapshot.account }) { snapshot ->
+                        AccountSnapshotCard(snapshot = snapshot)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountSnapshotCard(snapshot: AccountSnapshot) {
+    val accentColor = if (snapshot.balanceInCents >= 0L) IncomeTint else ExpenseTint
+
+    Surface(
+        modifier = Modifier.width(220.dp),
+        color = accentColor.copy(alpha = 0.08f),
+        shape = RoundedCornerShape(24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = snapshot.account,
+                style = MaterialTheme.typography.titleLarge
+            )
+            Text(
+                text = formatCurrency(snapshot.balanceInCents),
+                style = MaterialTheme.typography.headlineLarge.copy(fontFamily = FontFamily.Monospace),
+                color = accentColor
+            )
+            Text(
+                text = "\u6536\u5165 ${formatCurrency(snapshot.incomeInCents)} / \u652f\u51fa ${formatCurrency(snapshot.expenseInCents)}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
 private fun FilterSection(
     periodFilter: LedgerPeriodFilter,
     typeFilter: LedgerEntryFilterType,
+    accountFilter: String?,
     categoryFilter: String?,
+    accounts: List<String>,
     categories: List<String>,
     onPeriodSelected: (LedgerPeriodFilter) -> Unit,
     onTypeSelected: (LedgerEntryFilterType) -> Unit,
+    onAccountSelected: (String?) -> Unit,
     onCategorySelected: (String?) -> Unit
 ) {
     ElevatedCard(
@@ -1106,7 +1237,7 @@ private fun FilterSection(
         ) {
             SectionHeading(
                 title = "\u7b5b\u9009\u548c\u89c2\u5bdf",
-                subtitle = "\u6309\u65f6\u95f4\u3001\u6536\u652f\u7c7b\u578b\u548c\u5206\u7c7b\u770b\u4f60\u7684\u8d26\u672c"
+                subtitle = "\u6309\u65f6\u95f4\u3001\u8d26\u6237\u3001\u6536\u652f\u7c7b\u578b\u548c\u5206\u7c7b\u770b\u4f60\u7684\u8d26\u672c"
             )
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1135,6 +1266,32 @@ private fun FilterSection(
                                 Text(filter.displayName())
                             }
                         )
+                    }
+                }
+            }
+
+            if (accounts.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SectionEyebrow("\u8d26\u6237")
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            FilterChip(
+                                selected = accountFilter == null,
+                                onClick = { onAccountSelected(null) },
+                                label = {
+                                    Text("\u5168\u90e8")
+                                }
+                            )
+                        }
+                        items(accounts) { account ->
+                            FilterChip(
+                                selected = account == accountFilter,
+                                onClick = { onAccountSelected(account) },
+                                label = {
+                                    Text(account)
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -1857,9 +2014,9 @@ private fun TemplateSection(
             SectionHeading(
                 title = "\u5feb\u6377\u6a21\u677f",
                 subtitle = if (templates.isEmpty()) {
-                    "\u5148\u4ece\u4e0b\u9762\u7684\u5f55\u5165\u533a\u4fdd\u5b58\u4e00\u4e2a\u5e38\u7528\u6a21\u677f"
+                    "\u53ef\u4ee5\u5148\u4ece\u5f55\u5165\u533a\u4fdd\u5b58\u6a21\u677f\uff0c\u9009\u4e86\u6bcf\u5468/\u6bcf\u6708\u540e\u5c31\u4f1a\u53d8\u6210\u5468\u671f\u6a21\u677f"
                 } else {
-                    "\u4e00\u952e\u5957\u7528\u5e38\u7528\u8d26\u5355\uff0c\u9002\u5408\u65e9\u9910\u3001\u901a\u52e4\u3001\u5de5\u8d44\u7b49\u56fa\u5b9a\u573a\u666f"
+                    "\u666e\u901a\u6a21\u677f\u53ef\u4ee5\u4e00\u952e\u5957\u7528\uff0c\u5468\u671f\u6a21\u677f\u4f1a\u5728\u5230\u671f\u65f6\u81ea\u52a8\u8865\u8d26"
                 }
             )
 
@@ -1913,11 +2070,44 @@ private fun TemplateCard(
                 text = template.title,
                 style = MaterialTheme.typography.titleLarge
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(
+                    color = accentColor.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(999.dp)
+                ) {
+                    Text(
+                        text = template.account,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = accentColor
+                    )
+                }
+                if (template.recurrence != LedgerTemplateRecurrence.NONE) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(999.dp)
+                    ) {
+                        Text(
+                            text = template.recurrence.displayName(),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
             Text(
                 text = "${template.category} ${formatCurrency(template.amountInCents)}",
                 style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
                 color = accentColor
             )
+            if (template.nextDueAt != null && template.recurrence != LedgerTemplateRecurrence.NONE) {
+                Text(
+                    text = "\u4e0b\u6b21\u81ea\u52a8\u8bb0\u8d26 ${formatTemplateDueTime(template.nextDueAt)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             if (template.note.isNotBlank()) {
                 Text(
                     text = template.note,
@@ -1951,9 +2141,12 @@ private fun EntryEditorSection(
     form: LedgerFormState,
     onTypeSelected: (LedgerEntryType) -> Unit,
     onAmountChanged: (String) -> Unit,
+    onAccountChanged: (String) -> Unit,
     onCategoryChanged: (String) -> Unit,
     onNoteChanged: (String) -> Unit,
+    onSuggestedAccountSelected: (String) -> Unit,
     onSuggestedCategorySelected: (String) -> Unit,
+    onTemplateRecurrenceSelected: (LedgerTemplateRecurrence) -> Unit,
     onSaveClick: () -> Unit,
     onCancelEditClick: () -> Unit,
     onSaveTemplateClick: () -> Unit,
@@ -2056,6 +2249,38 @@ private fun EntryEditorSection(
             )
 
             OutlinedTextField(
+                value = form.account,
+                onValueChange = onAccountChanged,
+                modifier = Modifier.fillMaxWidth(),
+                label = {
+                    Text("\u8d26\u6237")
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(20.dp)
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionEyebrow("\u5e38\u7528\u8d26\u6237")
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(accountSuggestions()) { suggestion ->
+                        FilterChip(
+                            selected = suggestion == form.account,
+                            onClick = {
+                                onSuggestedAccountSelected(suggestion)
+                            },
+                            label = {
+                                Text(suggestion)
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                selectedLabelColor = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                    }
+                }
+            }
+
+            OutlinedTextField(
                 value = form.category,
                 onValueChange = onCategoryChanged,
                 modifier = Modifier.fillMaxWidth(),
@@ -2099,6 +2324,23 @@ private fun EntryEditorSection(
                 shape = RoundedCornerShape(20.dp)
             )
 
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionEyebrow("\u6a21\u677f\u5468\u671f")
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(LedgerTemplateRecurrence.entries.toList()) { recurrence ->
+                        FilterChip(
+                            selected = recurrence == form.templateRecurrence,
+                            onClick = {
+                                onTemplateRecurrenceSelected(recurrence)
+                            },
+                            label = {
+                                Text(recurrence.displayName())
+                            }
+                        )
+                    }
+                }
+            }
+
             if (form.receiptText.isNotBlank()) {
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
@@ -2129,7 +2371,11 @@ private fun EntryEditorSection(
                 shape = RoundedCornerShape(20.dp)
             ) {
                 Text(
-                    text = "\u8f93\u5165\u4fe1\u606f\u540e\u53ef\u4ee5\u76f4\u63a5\u4fdd\u5b58\uff0c\u4e5f\u53ef\u4ee5\u987a\u624b\u5b58\u6210\u5feb\u6377\u6a21\u677f\u3002",
+                    text = if (form.templateRecurrence == LedgerTemplateRecurrence.NONE) {
+                        "\u8f93\u5165\u4fe1\u606f\u540e\u53ef\u4ee5\u76f4\u63a5\u4fdd\u5b58\uff0c\u4e5f\u53ef\u4ee5\u987a\u624b\u5b58\u6210\u5feb\u6377\u6a21\u677f\u3002"
+                    } else {
+                        "\u5f53\u524d\u6a21\u677f\u5c06\u6309${form.templateRecurrence.displayName()}\u81ea\u52a8\u8865\u8d26\uff0c\u4fdd\u5b58\u4e3a\u6a21\u677f\u540e\u4ece\u4e0b\u4e00\u4e2a\u5468\u671f\u5f00\u59cb\u751f\u6548\u3002"
+                    },
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -2164,7 +2410,7 @@ private fun EntryEditorSection(
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(20.dp)
                 ) {
-                    Text("\u5b58\u4e3a\u6a21\u677f")
+                    Text(if (form.templateRecurrence == LedgerTemplateRecurrence.NONE) "\u5b58\u4e3a\u6a21\u677f" else "\u5b58\u4e3a\u5468\u671f")
                 }
             }
 
@@ -2372,16 +2618,29 @@ private fun LedgerEntryCard(
                             text = entry.category,
                             style = MaterialTheme.typography.titleLarge
                         )
-                        Surface(
-                            color = accentColor.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(999.dp)
-                        ) {
-                            Text(
-                                text = entry.type.displayName(),
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = accentColor
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(
+                                color = accentColor.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(999.dp)
+                            ) {
+                                Text(
+                                    text = entry.type.displayName(),
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = accentColor
+                                )
+                            }
+                            Surface(
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(999.dp)
+                            ) {
+                                Text(
+                                    text = entry.account,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
                     Surface(
@@ -2458,6 +2717,18 @@ private data class TrendPoint(
     val maxAbsoluteValue: Long
 )
 
+private data class AccountSnapshot(
+    val account: String,
+    val incomeInCents: Long,
+    val expenseInCents: Long
+) {
+    val balanceInCents: Long
+        get() = incomeInCents - expenseInCents
+
+    val turnoverInCents: Long
+        get() = incomeInCents + expenseInCents
+}
+
 private data class ChartFocus(
     val type: LedgerEntryType,
     val category: String
@@ -2490,7 +2761,7 @@ private fun LedgerBoard.subtitle(): String {
     return when (this) {
         LedgerBoard.DASHBOARD -> "\u4f59\u989d\u6982\u89c8\u3001\u5feb\u901f\u8bb0\u8d26\u548c\u6700\u8fd1\u52a8\u6001"
         LedgerBoard.STATS -> "\u6536\u652f\u56fe\u8868\u3001\u8d8b\u52bf\u548c\u5206\u7c7b\u660e\u7ec6"
-        LedgerBoard.BUDGET -> "\u9884\u7b97\u63a7\u5236\u548c\u5e38\u7528\u6a21\u677f\u653e\u5728\u4e00\u8d77"
+        LedgerBoard.BUDGET -> "\u9884\u7b97\u3001\u5feb\u6377\u6a21\u677f\u548c\u5468\u671f\u6a21\u677f\u90fd\u5728\u8fd9\u91cc"
         LedgerBoard.TOOLS -> "\u5907\u4efd\u3001\u5bfc\u5165\u548c\u6362\u673a\u8fc1\u79fb"
         LedgerBoard.LEDGER -> "\u7b5b\u9009\u5e76\u7ba1\u7406\u5168\u90e8\u8d26\u76ee"
     }
@@ -2511,6 +2782,38 @@ private fun buildAvailableCategories(
         .filter { category -> category.isNotBlank() }
         .distinct()
         .sorted()
+}
+
+private fun buildAvailableAccounts(
+    entries: List<LedgerEntry>,
+    templates: List<LedgerTemplate>
+): List<String> {
+    return (entries.map { entry -> entry.account } + templates.map { template -> template.account })
+        .filter { account -> account.isNotBlank() }
+        .distinct()
+        .sorted()
+}
+
+private fun buildAccountSnapshots(entries: List<LedgerEntry>): List<AccountSnapshot> {
+    return entries
+        .groupBy { entry -> entry.account }
+        .map { (account, accountEntries) ->
+            AccountSnapshot(
+                account = account,
+                incomeInCents = accountEntries
+                    .filter { entry -> entry.type == LedgerEntryType.INCOME }
+                    .sumOf { entry -> entry.amountInCents },
+                expenseInCents = accountEntries
+                    .filter { entry -> entry.type == LedgerEntryType.EXPENSE }
+                    .sumOf { entry -> entry.amountInCents }
+            )
+        }
+        .sortedWith(
+            compareByDescending<AccountSnapshot> { it.turnoverInCents }
+                .thenByDescending { it.balanceInCents }
+                .thenBy { it.account }
+        )
+        .take(6)
 }
 
 private fun buildCategoryBreakdown(
@@ -2594,6 +2897,7 @@ private fun filterEntries(
     entries: List<LedgerEntry>,
     periodFilter: LedgerPeriodFilter,
     typeFilter: LedgerEntryFilterType,
+    account: String?,
     category: String?
 ): List<LedgerEntry> {
     val zoneId = ZoneId.systemDefault()
@@ -2611,9 +2915,10 @@ private fun filterEntries(
             LedgerEntryFilterType.EXPENSE -> entry.type == LedgerEntryType.EXPENSE
             LedgerEntryFilterType.INCOME -> entry.type == LedgerEntryType.INCOME
         }
+        val matchesAccount = account == null || entry.account == account
         val matchesCategory = category == null || entry.category == category
 
-        matchesPeriod && matchesType && matchesCategory
+        matchesPeriod && matchesType && matchesAccount && matchesCategory
     }
 }
 
@@ -2658,6 +2963,12 @@ private fun formatEntryTime(timestamp: Long): String {
     return Instant.ofEpochMilli(timestamp)
         .atZone(ZoneId.systemDefault())
         .format(EntryTimeFormatter)
+}
+
+private fun formatTemplateDueTime(timestamp: Long): String {
+    return Instant.ofEpochMilli(timestamp)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("M\u6708d\u65e5", Locale.CHINA))
 }
 
 private val Long.absoluteValue: Long
