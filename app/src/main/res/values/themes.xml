@@ -1,4 +1,3 @@
 <resources>
-
-    <style name="Theme.记账喵" parent="Theme.MaterialComponents.Light" />
+    <style name="Theme.Jizhangmiao" parent="android:Theme.Material.Light.NoActionBar" />
 </resources>

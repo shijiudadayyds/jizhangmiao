@@ -1,17 +1,45 @@
 package com.android.jizhangmiao
 
+import com.android.jizhangmiao.ledger.LedgerSummaryCalculator
+import com.android.jizhangmiao.ledger.data.LedgerEntry
+import com.android.jizhangmiao.ledger.data.LedgerEntryType
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
-import org.junit.Assert.*
-
-/**
- * Example local unit test, which will execute on the development machine (host).
- *
- * See [testing documentation](http://d.android.com/tools/testing).
- */
 class ExampleUnitTest {
     @Test
-    fun addition_isCorrect() {
-        assertEquals(4, 2 + 2)
+    fun summaryCalculator_sumsIncomeExpenseAndBalance() {
+        val summary = LedgerSummaryCalculator.calculate(
+            listOf(
+                LedgerEntry(
+                    type = LedgerEntryType.INCOME,
+                    amountInCents = 15_000L,
+                    category = "工资"
+                ),
+                LedgerEntry(
+                    type = LedgerEntryType.EXPENSE,
+                    amountInCents = 2_599L,
+                    category = "餐饮"
+                ),
+                LedgerEntry(
+                    type = LedgerEntryType.EXPENSE,
+                    amountInCents = 1_201L,
+                    category = "交通"
+                )
+            )
+        )
+
+        assertEquals(15_000L, summary.incomeInCents)
+        assertEquals(3_800L, summary.expenseInCents)
+        assertEquals(11_200L, summary.balanceInCents)
+    }
+
+    @Test
+    fun summaryCalculator_returnsZeroForEmptyLedger() {
+        val summary = LedgerSummaryCalculator.calculate(emptyList())
+
+        assertEquals(0L, summary.incomeInCents)
+        assertEquals(0L, summary.expenseInCents)
+        assertEquals(0L, summary.balanceInCents)
     }
 }

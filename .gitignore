@@ -1,5 +1,8 @@
 *.iml
 .gradle
+.gradle-user-home
+.android-user-home
+.android-sdk-home
 /local.properties
 /.idea/caches
 /.idea/libraries
