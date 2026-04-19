@@ -146,7 +146,15 @@ fun LedgerScreen(
     val trendGranularity = remember(trendGranularityName) {
         LedgerTrendGranularity.valueOf(trendGranularityName)
     }
-    val boards = remember { LedgerBoard.entries.toList() }
+    val boards = remember {
+        listOf(
+            LedgerBoard.DASHBOARD,
+            LedgerBoard.LEDGER,
+            LedgerBoard.STATS,
+            LedgerBoard.BUDGET,
+            LedgerBoard.TOOLS
+        )
+    }
     val pagerState = rememberPagerState(pageCount = { boards.size })
     val coroutineScope = rememberCoroutineScope()
 
@@ -239,8 +247,11 @@ fun LedgerScreen(
         uri?.let(onScanReceipt)
     }
     val openBoard: (LedgerBoard) -> Unit = { board ->
-        coroutineScope.launch {
-            pagerState.animateScrollToPage(board.ordinal)
+        val targetPage = boards.indexOf(board)
+        if (targetPage >= 0) {
+            coroutineScope.launch {
+                pagerState.animateScrollToPage(targetPage)
+            }
         }
     }
 
@@ -289,7 +300,7 @@ fun LedgerScreen(
                     ) {
                         items(boards) { board ->
                             FilterChip(
-                                selected = board.ordinal == pagerState.currentPage,
+                                selected = board == currentBoard,
                                 onClick = {
                                     openBoard(board)
                                 },
@@ -434,16 +445,16 @@ fun LedgerScreen(
                                 },
                                 onSaveBudgetClick = {
                                     onSaveBudgetClick(monthlyBudgetText, budgetCategory, categoryBudgetText)
-                                }
-                            )
-
-                            LedgerBoard.TOOLS -> ToolsBoard(
+                                },
                                 templates = uiState.templates,
                                 onApplyTemplateClick = { template ->
                                     onApplyTemplateClick(template)
                                     openBoard(LedgerBoard.DASHBOARD)
                                 },
-                                onDeleteTemplateClick = onDeleteTemplateClick,
+                                onDeleteTemplateClick = onDeleteTemplateClick
+                            )
+
+                            LedgerBoard.TOOLS -> ToolsBoard(
                                 onExportClick = {
                                     exportLauncher.launch("jizhangmiao-backup-${LocalDate.now()}.json")
                                 },
@@ -815,7 +826,10 @@ private fun BudgetBoard(
     onMonthlyBudgetChanged: (String) -> Unit,
     onCategorySelected: (String) -> Unit,
     onCategoryBudgetChanged: (String) -> Unit,
-    onSaveBudgetClick: () -> Unit
+    onSaveBudgetClick: () -> Unit,
+    templates: List<LedgerTemplate>,
+    onApplyTemplateClick: (LedgerTemplate) -> Unit,
+    onDeleteTemplateClick: (LedgerTemplate) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -836,14 +850,19 @@ private fun BudgetBoard(
                 onSaveBudgetClick = onSaveBudgetClick
             )
         }
+
+        item {
+            TemplateSection(
+                templates = templates,
+                onApplyTemplateClick = onApplyTemplateClick,
+                onDeleteTemplateClick = onDeleteTemplateClick
+            )
+        }
     }
 }
 
 @Composable
 private fun ToolsBoard(
-    templates: List<LedgerTemplate>,
-    onApplyTemplateClick: (LedgerTemplate) -> Unit,
-    onDeleteTemplateClick: (LedgerTemplate) -> Unit,
     onExportClick: () -> Unit,
     onImportClick: () -> Unit
 ) {
@@ -852,14 +871,6 @@ private fun ToolsBoard(
         contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        item {
-            TemplateSection(
-                templates = templates,
-                onApplyTemplateClick = onApplyTemplateClick,
-                onDeleteTemplateClick = onDeleteTemplateClick
-            )
-        }
-
         item {
             ToolSection(
                 onExportClick = onExportClick,
@@ -2467,21 +2478,21 @@ private enum class LedgerTrendGranularity {
 
 private fun LedgerBoard.displayName(): String {
     return when (this) {
-        LedgerBoard.DASHBOARD -> "\u9996\u9875"
-        LedgerBoard.STATS -> "\u7edf\u8ba1"
-        LedgerBoard.BUDGET -> "\u9884\u7b97"
-        LedgerBoard.TOOLS -> "\u5de5\u5177"
-        LedgerBoard.LEDGER -> "\u8d26\u5355"
+        LedgerBoard.DASHBOARD -> "\u603b\u89c8"
+        LedgerBoard.STATS -> "\u5206\u6790"
+        LedgerBoard.BUDGET -> "\u89c4\u5212"
+        LedgerBoard.TOOLS -> "\u6570\u636e"
+        LedgerBoard.LEDGER -> "\u8d26\u672c"
     }
 }
 
 private fun LedgerBoard.subtitle(): String {
     return when (this) {
-        LedgerBoard.DASHBOARD -> "\u4eea\u8868\u76d8\u3001\u5feb\u901f\u8bb0\u8d26\u548c\u6700\u8fd1\u8d26\u5355"
-        LedgerBoard.STATS -> "\u7b5b\u9009\u3001\u56fe\u8868\u4e0e\u660e\u7ec6\u8054\u52a8\u90fd\u5728\u8fd9\u4e00\u9875"
-        LedgerBoard.BUDGET -> "\u5355\u72ec\u7ba1\u7406\u6708\u9884\u7b97\u548c\u5206\u7c7b\u9884\u7b97"
-        LedgerBoard.TOOLS -> "\u5feb\u6377\u6a21\u677f\u3001\u5907\u4efd\u5bfc\u5165\u5bfc\u51fa\u5168\u90e8\u5728\u8fd9\u91cc"
-        LedgerBoard.LEDGER -> "\u8fd9\u91cc\u662f\u5b8c\u6574\u8d26\u5355\u9875\uff0c\u53ef\u4ee5\u7ee7\u7eed\u7b5b\u9009\u548c\u7ba1\u7406\u6bcf\u4e00\u7b14"
+        LedgerBoard.DASHBOARD -> "\u4f59\u989d\u6982\u89c8\u3001\u5feb\u901f\u8bb0\u8d26\u548c\u6700\u8fd1\u52a8\u6001"
+        LedgerBoard.STATS -> "\u6536\u652f\u56fe\u8868\u3001\u8d8b\u52bf\u548c\u5206\u7c7b\u660e\u7ec6"
+        LedgerBoard.BUDGET -> "\u9884\u7b97\u63a7\u5236\u548c\u5e38\u7528\u6a21\u677f\u653e\u5728\u4e00\u8d77"
+        LedgerBoard.TOOLS -> "\u5907\u4efd\u3001\u5bfc\u5165\u548c\u6362\u673a\u8fc1\u79fb"
+        LedgerBoard.LEDGER -> "\u7b5b\u9009\u5e76\u7ba1\u7406\u5168\u90e8\u8d26\u76ee"
     }
 }
 
