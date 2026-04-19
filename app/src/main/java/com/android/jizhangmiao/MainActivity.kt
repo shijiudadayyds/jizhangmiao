@@ -22,7 +22,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             JizhangmiaoTheme {
                 val viewModel: LedgerViewModel = viewModel(
-                    factory = LedgerViewModel.factory(ledgerStore)
+                    factory = LedgerViewModel.factory(applicationContext, ledgerStore)
                 )
                 val uiState = viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -34,7 +34,17 @@ class MainActivity : ComponentActivity() {
                     onNoteChanged = viewModel::onNoteChanged,
                     onSuggestedCategorySelected = viewModel::onSuggestedCategorySelected,
                     onSaveClick = viewModel::saveEntry,
-                    onDeleteClick = viewModel::deleteEntry
+                    onCancelEditClick = viewModel::cancelEditing,
+                    onDeleteClick = viewModel::deleteEntry,
+                    onEditClick = viewModel::startEditing,
+                    onSaveTemplateClick = viewModel::saveCurrentAsTemplate,
+                    onApplyTemplateClick = viewModel::applyTemplate,
+                    onDeleteTemplateClick = viewModel::deleteTemplate,
+                    onSaveBudgetClick = viewModel::saveBudget,
+                    onExportBackup = viewModel::exportBackup,
+                    onImportBackup = viewModel::importBackup,
+                    onScanReceipt = viewModel::scanReceipt,
+                    onDismissStatusMessage = viewModel::dismissStatusMessage
                 )
             }
         }

@@ -1,7 +1,21 @@
 package com.android.jizhangmiao.ledger
 
+import com.android.jizhangmiao.ledger.data.LedgerBudgetConfig
 import com.android.jizhangmiao.ledger.data.LedgerEntry
 import com.android.jizhangmiao.ledger.data.LedgerEntryType
+import com.android.jizhangmiao.ledger.data.LedgerTemplate
+
+enum class LedgerPeriodFilter {
+    THIS_MONTH,
+    LAST_90_DAYS,
+    ALL
+}
+
+enum class LedgerEntryFilterType {
+    ALL,
+    EXPENSE,
+    INCOME
+}
 
 private val expenseCategorySuggestions = listOf(
     "\u9910\u996e",
@@ -38,13 +52,34 @@ fun LedgerEntryType.displayName(): String {
     }
 }
 
+fun LedgerPeriodFilter.displayName(): String {
+    return when (this) {
+        LedgerPeriodFilter.THIS_MONTH -> "\u672c\u6708"
+        LedgerPeriodFilter.LAST_90_DAYS -> "90\u5929"
+        LedgerPeriodFilter.ALL -> "\u5168\u90e8"
+    }
+}
+
+fun LedgerEntryFilterType.displayName(): String {
+    return when (this) {
+        LedgerEntryFilterType.ALL -> "\u5168\u90e8"
+        LedgerEntryFilterType.EXPENSE -> "\u652f\u51fa"
+        LedgerEntryFilterType.INCOME -> "\u6536\u5165"
+    }
+}
+
 data class LedgerFormState(
+    val editingEntryId: String? = null,
     val type: LedgerEntryType = LedgerEntryType.EXPENSE,
     val amount: String = "",
     val category: String = defaultCategoryFor(LedgerEntryType.EXPENSE),
     val note: String = "",
+    val receiptText: String = "",
     val errorMessage: String? = null
-)
+) {
+    val isEditing: Boolean
+        get() = editingEntryId != null
+}
 
 data class LedgerSummary(
     val incomeInCents: Long = 0,
@@ -74,7 +109,10 @@ object LedgerSummaryCalculator {
 }
 
 data class LedgerUiState(
-    val summary: LedgerSummary = LedgerSummary(),
+    val entries: List<LedgerEntry> = emptyList(),
+    val templates: List<LedgerTemplate> = emptyList(),
+    val budgetConfig: LedgerBudgetConfig = LedgerBudgetConfig(),
     val form: LedgerFormState = LedgerFormState(),
-    val entries: List<LedgerEntry> = emptyList()
+    val statusMessage: String? = null,
+    val isReceiptScanning: Boolean = false
 )
