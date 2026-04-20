@@ -20,10 +20,14 @@ class LedgerStore private constructor(
     private val _entries = MutableStateFlow(loadEntries())
     private val _templates = MutableStateFlow(loadTemplates())
     private val _budgetConfig = MutableStateFlow(loadBudgetConfig())
+    private val _settings = MutableStateFlow(loadSettings())
+    private val _automationTrace = MutableStateFlow(loadAutomationTrace())
 
     val entries: StateFlow<List<LedgerEntry>> = _entries.asStateFlow()
     val templates: StateFlow<List<LedgerTemplate>> = _templates.asStateFlow()
     val budgetConfig: StateFlow<LedgerBudgetConfig> = _budgetConfig.asStateFlow()
+    val settings: StateFlow<LedgerAppSettings> = _settings.asStateFlow()
+    val automationTrace: StateFlow<LedgerAutomationTrace> = _automationTrace.asStateFlow()
 
     suspend fun addEntry(entry: LedgerEntry) {
         updateEntries { current ->
@@ -133,6 +137,27 @@ class LedgerStore private constructor(
                 updatedBudgets[category] = amountInCents
             }
             current.copy(categoryBudgets = updatedBudgets.toSortedMap())
+        }
+    }
+
+    suspend fun updateQuickEntryNotificationEnabled(enabled: Boolean) {
+        withContext(Dispatchers.IO) {
+            synchronized(writeLock) {
+                val updatedSettings = _settings.value.copy(
+                    quickEntryNotificationEnabled = enabled
+                )
+                persistSettings(updatedSettings)
+                _settings.value = updatedSettings
+            }
+        }
+    }
+
+    suspend fun recordAutomationTrace(trace: LedgerAutomationTrace) {
+        withContext(Dispatchers.IO) {
+            synchronized(writeLock) {
+                persistAutomationTrace(trace)
+                _automationTrace.value = trace
+            }
         }
     }
 
@@ -265,6 +290,32 @@ class LedgerStore private constructor(
         }
     }
 
+    private fun loadSettings(): LedgerAppSettings {
+        val rawValue = preferences.getString(KEY_SETTINGS, null).orEmpty()
+        if (rawValue.isBlank()) {
+            return LedgerAppSettings()
+        }
+
+        return runCatching {
+            decodeSettings(JSONObject(rawValue))
+        }.getOrElse {
+            LedgerAppSettings()
+        }
+    }
+
+    private fun loadAutomationTrace(): LedgerAutomationTrace {
+        val rawValue = preferences.getString(KEY_AUTOMATION_TRACE, null).orEmpty()
+        if (rawValue.isBlank()) {
+            return LedgerAutomationTrace()
+        }
+
+        return runCatching {
+            decodeAutomationTrace(JSONObject(rawValue))
+        }.getOrElse {
+            LedgerAutomationTrace()
+        }
+    }
+
     private fun loadAutoImportHistory(): List<String> {
         val rawValue = preferences.getString(KEY_AUTO_IMPORT_HISTORY, null).orEmpty()
         if (rawValue.isBlank()) {
@@ -316,6 +367,18 @@ class LedgerStore private constructor(
     private fun persistBudgetConfig(config: LedgerBudgetConfig) {
         preferences.edit()
             .putString(KEY_BUDGET_CONFIG, encodeBudgetConfig(config).toString())
+            .apply()
+    }
+
+    private fun persistSettings(settings: LedgerAppSettings) {
+        preferences.edit()
+            .putString(KEY_SETTINGS, encodeSettings(settings).toString())
+            .apply()
+    }
+
+    private fun persistAutomationTrace(trace: LedgerAutomationTrace) {
+        preferences.edit()
+            .putString(KEY_AUTOMATION_TRACE, encodeAutomationTrace(trace).toString())
             .apply()
     }
 
@@ -386,6 +449,21 @@ class LedgerStore private constructor(
                     }
                 }
             )
+        }
+    }
+
+    private fun encodeSettings(settings: LedgerAppSettings): JSONObject {
+        return JSONObject().apply {
+            put("quickEntryNotificationEnabled", settings.quickEntryNotificationEnabled)
+        }
+    }
+
+    private fun encodeAutomationTrace(trace: LedgerAutomationTrace): JSONObject {
+        return JSONObject().apply {
+            put("sourceLabel", trace.sourceLabel)
+            put("summary", trace.summary)
+            put("rawText", trace.rawText)
+            put("happenedAt", trace.happenedAt)
         }
     }
 
@@ -467,11 +545,39 @@ class LedgerStore private constructor(
         )
     }
 
+    private fun decodeSettings(jsonObject: JSONObject?): LedgerAppSettings {
+        if (jsonObject == null) {
+            return LedgerAppSettings()
+        }
+
+        return LedgerAppSettings(
+            quickEntryNotificationEnabled = jsonObject.optBoolean(
+                "quickEntryNotificationEnabled",
+                false
+            )
+        )
+    }
+
+    private fun decodeAutomationTrace(jsonObject: JSONObject?): LedgerAutomationTrace {
+        if (jsonObject == null) {
+            return LedgerAutomationTrace()
+        }
+
+        return LedgerAutomationTrace(
+            sourceLabel = jsonObject.optString("sourceLabel"),
+            summary = jsonObject.optString("summary"),
+            rawText = jsonObject.optString("rawText"),
+            happenedAt = jsonObject.optLong("happenedAt", 0L)
+        )
+    }
+
     companion object {
         private const val PREFS_NAME = "ledger_store"
         private const val KEY_ENTRIES = "entries"
         private const val KEY_TEMPLATES = "templates"
         private const val KEY_BUDGET_CONFIG = "budget_config"
+        private const val KEY_SETTINGS = "settings"
+        private const val KEY_AUTOMATION_TRACE = "automation_trace"
         private const val KEY_AUTO_IMPORT_HISTORY = "auto_import_history"
         private const val MAX_AUTO_IMPORT_HISTORY = 80
         private const val AUTO_IMPORT_WINDOW_MILLIS = 2 * 60 * 1000L

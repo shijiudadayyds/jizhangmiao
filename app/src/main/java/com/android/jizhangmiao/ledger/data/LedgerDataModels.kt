@@ -56,6 +56,20 @@ data class LedgerBudgetConfig(
     val categoryBudgets: Map<String, Long> = emptyMap()
 )
 
+data class LedgerAppSettings(
+    val quickEntryNotificationEnabled: Boolean = false
+)
+
+data class LedgerAutomationTrace(
+    val sourceLabel: String = "",
+    val summary: String = "",
+    val rawText: String = "",
+    val happenedAt: Long = 0L
+) {
+    val isAvailable: Boolean
+        get() = happenedAt > 0L
+}
+
 fun sanitizeAmountInput(value: String): String {
     val filtered = value.filter { it.isDigit() || it == '.' }
     val dotIndex = filtered.indexOf('.')

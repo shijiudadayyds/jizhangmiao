@@ -2,6 +2,9 @@ import java.io.File
 import java.io.FileInputStream
 import java.security.KeyStore
 import java.security.MessageDigest
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 plugins {
     alias(libs.plugins.android.application)
@@ -46,6 +49,11 @@ fun xorObfuscateHex(
 android {
     namespace = "com.android.jizhangmiao"
     compileSdk = 36
+    val buildTime = ZonedDateTime.now(ZoneId.of("Asia/Hong_Kong"))
+    val generatedVersionCode = buildTime.toEpochSecond().toInt()
+    val generatedVersionName = buildTime.format(
+        DateTimeFormatter.ofPattern("'1.0.'yyyyMMdd'.'HHmmss")
+    )
 
     val releaseSigning = signingConfigs.getByName("debug")
     val releaseCertSha256Obfuscated = xorObfuscateHex(
@@ -61,8 +69,8 @@ android {
         applicationId = "com.android.jizhangmiao"
         minSdk = 28
         targetSdk = 36
-        versionCode = 102
-        versionName = "1.0.2"
+        versionCode = generatedVersionCode
+        versionName = generatedVersionName
         resValue("bool", "security_checks_enabled", "false")
         resValue("string", "release_cert_sha256_obfuscated", "\"\"")
 

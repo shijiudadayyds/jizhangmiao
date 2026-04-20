@@ -990,6 +990,9 @@ private fun ToolsBoard(
                 onOpenNotificationAccess = {
                     openNotificationAutomationSettings(context)
                 },
+                onOpenAccessibilityAccess = {
+                    openAccessibilityAutomationSettings(context)
+                },
                 onOpenWeChat = {
                     launchExternalPaymentApp(context, WeChatPackageName)
                 },
@@ -2712,6 +2715,7 @@ private fun EntryTypeButton(
 private fun AutomationSection(
     status: NotificationAutomationStatus,
     onOpenNotificationAccess: () -> Unit,
+    onOpenAccessibilityAccess: () -> Unit,
     onOpenWeChat: () -> Unit,
     onOpenAlipay: () -> Unit
 ) {
@@ -2727,7 +2731,7 @@ private fun AutomationSection(
         ) {
             SectionHeading(
                 title = "\u81ea\u52a8\u8bb0\u8d26",
-                subtitle = "\u6253\u5f00\u901a\u77e5\u8bbf\u95ee\u540e\uff0c\u53ef\u4ece\u5fae\u4fe1\u548c\u652f\u4ed8\u5b9d\u7684\u6536\u4ed8\u6b3e\u901a\u77e5\u91cc\u81ea\u52a8\u751f\u6210\u8d26\u5355"
+                subtitle = "\u901a\u77e5\u8bbf\u95ee\u548c\u65e0\u969c\u788d\u8bfb\u5c4f\u90fd\u53ef\u4ee5\u81ea\u52a8\u5bfc\u5165\uff0c\u652f\u4ed8\u6210\u529f\u9875\u3001\u6536\u6b3e\u6210\u529f\u9875\u548c\u901a\u77e5\u90fd\u4f1a\u88ab\u5c1d\u8bd5\u8bc6\u522b"
             )
 
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2736,6 +2740,13 @@ private fun AutomationSection(
                         label = if (status.notificationAccessEnabled) "\u901a\u77e5\u5df2\u5f00"
                         else "\u901a\u77e5\u672a\u5f00",
                         active = status.notificationAccessEnabled
+                    )
+                }
+                item {
+                    AutomationStatusPill(
+                        label = if (status.accessibilityAccessEnabled) "\u65e0\u969c\u788d\u5df2\u5f00"
+                        else "\u65e0\u969c\u788d\u672a\u5f00",
+                        active = status.accessibilityAccessEnabled
                     )
                 }
                 item {
@@ -2759,10 +2770,12 @@ private fun AutomationSection(
                 shape = RoundedCornerShape(20.dp)
             ) {
                 Text(
-                    text = if (status.notificationAccessEnabled) {
-                        "\u5f53\u524d\u5df2\u53ef\u4ee5\u81ea\u52a8\u76d1\u542c\u901a\u77e5\u3002\u4ea4\u6613\u6210\u529f\u540e\uff0c\u4f1a\u6309\u901a\u77e5\u91d1\u989d\u3001\u8d26\u6237\u548c\u5173\u952e\u8bcd\u76f4\u63a5\u5165\u8d26\u3002"
+                    text = if (status.notificationAccessEnabled && status.accessibilityAccessEnabled) {
+                        "\u5f53\u524d\u5df2\u540c\u65f6\u5f00\u542f\u901a\u77e5\u548c\u65e0\u969c\u788d\u8bfb\u5c4f\u3002\u901a\u77e5\u53ef\u6293\u53d6\u540e\u53f0\u63d0\u9192\uff0c\u65e0\u969c\u788d\u4f1a\u76f4\u63a5\u8bc6\u522b\u5fae\u4fe1/\u652f\u4ed8\u5b9d\u7684\u652f\u4ed8\u6210\u529f\u9875\u548c\u6536\u6b3e\u9875\u3002"
+                    } else if (status.notificationAccessEnabled || status.accessibilityAccessEnabled) {
+                        "\u5f53\u524d\u53ea\u5f00\u4e86\u4e00\u90e8\u5206\u81ea\u52a8\u5bfc\u5165\u80fd\u529b\u3002\u5efa\u8bae\u901a\u77e5\u8bbf\u95ee\u548c\u65e0\u969c\u788d\u90fd\u6253\u5f00\uff0c\u8fd9\u6837\u652f\u4ed8\u901a\u77e5\u548c\u4ed8\u6b3e/\u6536\u6b3e\u6210\u529f\u9875\u90fd\u80fd\u88ab\u8bb0\u5f55\u3002"
                     } else {
-                        "\u8fd9\u7248\u662f\u901a\u8fc7\u7cfb\u7edf\u901a\u77e5\u505a\u81ea\u52a8\u8bb0\u8d26\uff0c\u4e0d\u7528\u7b49\u5fae\u4fe1/\u652f\u4ed8\u5b9d\u63d0\u4f9b\u79c1\u6709\u63a5\u53e3\u3002\u5148\u53bb\u8bbe\u7f6e\u91cc\u5f00\u901a\u901a\u77e5\u8bbf\u95ee\u6743\u9650\u3002"
+                        "\u8981\u8ba9\u81ea\u52a8\u8bb0\u8d26\u751f\u6548\uff0c\u8bf7\u5148\u5728\u7cfb\u7edf\u8bbe\u7f6e\u91cc\u540c\u65f6\u6253\u5f00\u901a\u77e5\u8bbf\u95ee\u548c\u65e0\u969c\u788d\u670d\u52a1\u3002\u8fd9\u6837\u4e0d\u9700\u8981\u5fae\u4fe1/\u652f\u4ed8\u5b9d\u7684\u79c1\u6709\u63a5\u53e3\u4e5f\u80fd\u62ff\u5230\u4ea4\u6613\u7ed3\u679c\u3002"
                     },
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
@@ -2775,7 +2788,7 @@ private fun AutomationSection(
                 shape = RoundedCornerShape(20.dp)
             ) {
                 Text(
-                    text = "\u53d7\u7b2c\u4e09\u65b9 App \u9650\u5236\uff0c\u8fd9\u91cc\u53ea\u80fd\u7a33\u5b9a\u6253\u5f00\u5fae\u4fe1/\u652f\u4ed8\u5b9d App\uff0c\u4e0d\u4fdd\u8bc1\u80fd\u76f4\u8fbe\u5177\u4f53\u4ed8\u6b3e\u7801\u9875\u9762\u3002",
+                    text = "\u53d7\u7b2c\u4e09\u65b9 App \u9650\u5236\uff0c\u4e0d\u4fdd\u8bc1\u80fd\u8df3\u5230\u6307\u5b9a\u4ed8\u6b3e\u7801\u6216\u6536\u6b3e\u7801\u9875\u3002\u4f46\u53ea\u8981\u4ea4\u6613\u540e\u663e\u793a\u6210\u529f\u9875\u6216\u53d1\u51fa\u901a\u77e5\uff0c\u5c31\u4f1a\u5c1d\u8bd5\u81ea\u52a8\u5165\u8d26\u3002",
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
@@ -2788,7 +2801,14 @@ private fun AutomationSection(
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(20.dp)
                 ) {
-                    Text(if (status.notificationAccessEnabled) "\u67e5\u770b\u6743\u9650" else "\u53bb\u5f00\u6743\u9650")
+                    Text(if (status.notificationAccessEnabled) "\u901a\u77e5\u6743\u9650" else "\u6253\u5f00\u901a\u77e5")
+                }
+                OutlinedButton(
+                    onClick = onOpenAccessibilityAccess,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Text(if (status.accessibilityAccessEnabled) "\u65e0\u969c\u788d\u6743\u9650" else "\u6253\u5f00\u65e0\u969c\u788d")
                 }
             }
 

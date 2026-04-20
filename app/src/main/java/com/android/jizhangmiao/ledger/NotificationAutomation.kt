@@ -1,5 +1,6 @@
 package com.android.jizhangmiao.ledger
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Notification
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
@@ -9,6 +10,7 @@ import android.os.Build
 import android.provider.Settings
 import android.service.notification.StatusBarNotification
 import android.text.TextUtils
+import android.view.accessibility.AccessibilityManager
 import androidx.core.app.NotificationManagerCompat
 import com.android.jizhangmiao.ledger.data.LedgerEntryType
 import com.android.jizhangmiao.ledger.data.sanitizeAmountInput
@@ -21,6 +23,7 @@ internal const val AlipayPackageName = "com.eg.android.AlipayGphone"
 
 internal data class NotificationAutomationStatus(
     val notificationAccessEnabled: Boolean,
+    val accessibilityAccessEnabled: Boolean,
     val isWeChatInstalled: Boolean,
     val isAlipayInstalled: Boolean
 )
@@ -88,6 +91,7 @@ internal fun queryNotificationAutomationStatus(context: Context): NotificationAu
         notificationAccessEnabled = NotificationManagerCompat
             .getEnabledListenerPackages(context)
             .contains(context.packageName),
+        accessibilityAccessEnabled = isAccessibilityAutomationEnabled(context),
         isWeChatInstalled = canLaunchPackage(context, WeChatPackageName),
         isAlipayInstalled = canLaunchPackage(context, AlipayPackageName)
     )
@@ -131,6 +135,26 @@ internal fun openNotificationAutomationSettings(context: Context) {
     }
 }
 
+internal fun openAccessibilityAutomationSettings(context: Context) {
+    val accessibilityIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    runCatching {
+        context.startActivity(accessibilityIntent)
+    }.recoverCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        )
+    }.getOrElse { throwable ->
+        if (throwable !is ActivityNotFoundException) {
+            throw throwable
+        }
+    }
+}
+
 internal fun launchExternalPaymentApp(
     context: Context,
     packageName: String
@@ -143,21 +167,44 @@ internal fun launchExternalPaymentApp(
 }
 
 internal fun parseAutoImportedEntry(sbn: StatusBarNotification): AutoImportedEntry? {
-    val packageName = sbn.packageName
+    val notification = sbn.notification ?: return null
+    val title = notification.extras?.getCharSequence(Notification.EXTRA_TITLE)
+        ?.toString()
+        ?.trim()
+        .orEmpty()
+
+    return parseAutoImportedEntry(
+        packageName = sbn.packageName,
+        mergedText = collectNotificationText(notification),
+        dedupeSeed = sbn.key,
+        happenedAt = sbn.postTime.takeIf { it > 0L } ?: System.currentTimeMillis(),
+        sourceLabel = "\u901a\u77e5",
+        title = title
+    )
+}
+
+internal fun parseAutoImportedEntry(
+    packageName: String,
+    mergedText: String,
+    dedupeSeed: String,
+    happenedAt: Long,
+    sourceLabel: String,
+    title: String = ""
+): AutoImportedEntry? {
     if (packageName != WeChatPackageName && packageName != AlipayPackageName) {
         return null
     }
 
-    val notification = sbn.notification ?: return null
-    val mergedText = collectNotificationText(notification)
-    if (mergedText.isBlank()) {
+    val normalizedReceiptText = normalizeCollectedText(
+        mergedText.lineSequence().toList()
+    )
+    if (normalizedReceiptText.isBlank()) {
         return null
     }
 
-    val normalizedContent = normalizeForMatching(mergedText)
+    val normalizedContent = normalizeForMatching(normalizedReceiptText)
     val type = detectEntryType(normalizedContent) ?: return null
-    val amountInCents = extractAmountInCents(mergedText) ?: return null
-    val happenedAt = sbn.postTime.takeIf { it > 0L } ?: System.currentTimeMillis()
+    val amountInCents = extractAmountInCents(normalizedReceiptText) ?: return null
     val sourceName = if (packageName == WeChatPackageName) {
         "\u5fae\u4fe1\u652f\u4ed8"
     } else {
@@ -168,19 +215,15 @@ internal fun parseAutoImportedEntry(sbn: StatusBarNotification): AutoImportedEnt
     } else {
         "\u652f\u4ed8\u5b9d"
     }
-    val title = notification.extras?.getCharSequence(Notification.EXTRA_TITLE)
-        ?.toString()
-        ?.trim()
-        .orEmpty()
 
     return AutoImportedEntry(
         signature = sha256Hex(
             listOf(
                 packageName,
-                sbn.key,
+                dedupeSeed,
                 type.name,
                 amountInCents.toString(),
-                normalizeForMatching(mergedText)
+                normalizedContent
             ).joinToString("|")
         ),
         type = type,
@@ -190,12 +233,14 @@ internal fun parseAutoImportedEntry(sbn: StatusBarNotification): AutoImportedEnt
         note = buildString {
             append("\u81ea\u52a8\u8bb0\u8d26\uff1a")
             append(sourceName)
+            append(" / ")
+            append(sourceLabel)
             if (title.isNotBlank()) {
                 append(" / ")
                 append(title.take(24))
             }
         },
-        receiptText = mergedText.take(400),
+        receiptText = normalizedReceiptText.take(400),
         happenedAt = happenedAt
     )
 }
@@ -205,6 +250,22 @@ private fun canLaunchPackage(
     packageName: String
 ): Boolean {
     return context.packageManager.getLaunchIntentForPackage(packageName) != null
+}
+
+private fun isAccessibilityAutomationEnabled(context: Context): Boolean {
+    val manager = context.getSystemService(AccessibilityManager::class.java) ?: return false
+    val expectedComponent = ComponentName(context, PaymentAccessibilityService::class.java)
+
+    return manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+        .any { serviceInfo ->
+            val service = serviceInfo.resolveInfo?.serviceInfo ?: return@any false
+            val serviceClassName = if (service.name.startsWith(".")) {
+                service.packageName + service.name
+            } else {
+                service.name
+            }
+            ComponentName(service.packageName, serviceClassName) == expectedComponent
+        }
 }
 
 private fun collectNotificationText(notification: Notification): String {
@@ -232,6 +293,10 @@ private fun collectNotificationText(notification: Notification): String {
             ?.forEach(rawTexts::add)
     }
 
+    return normalizeCollectedText(rawTexts)
+}
+
+internal fun normalizeCollectedText(rawTexts: Iterable<String>): String {
     return rawTexts
         .map { text -> text.replace(Regex("""\s+"""), " ").trim() }
         .filter { text -> text.isNotBlank() && !TextUtils.isDigitsOnly(text) }
