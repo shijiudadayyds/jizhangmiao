@@ -40,7 +40,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -159,6 +162,7 @@ fun LedgerScreen(
     }
     val boards = remember {
         listOf(
+            LedgerBoard.QUICK_ENTRY,
             LedgerBoard.DASHBOARD,
             LedgerBoard.LEDGER,
             LedgerBoard.STATS,
@@ -209,7 +213,7 @@ fun LedgerScreen(
         buildAvailableAccounts(uiState.entries, uiState.templates)
     }
     val recentEntries = remember(uiState.entries) {
-        uiState.entries.take(6)
+        uiState.entries.take(4)
     }
     val accountSnapshots = remember(uiState.entries) {
         buildAccountSnapshots(uiState.entries)
@@ -367,13 +371,9 @@ fun LedgerScreen(
                         pagerState = pagerState
                     ) {
                         when (boards[page]) {
-                            LedgerBoard.DASHBOARD -> DashboardBoard(
-                                summary = dashboardSummary,
-                                budgetConfig = uiState.budgetConfig,
-                                currentMonthSummary = currentMonthSummary,
-                                topCategories = currentMonthTopCategories,
-                                accountSnapshots = accountSnapshots,
-                                totalRecordCount = uiState.entries.size,
+                            LedgerBoard.QUICK_ENTRY -> QuickEntryBoard(
+                                accountOptions = availableAccounts,
+                                categoryOptions = availableCategories,
                                 recentEntries = recentEntries,
                                 form = uiState.form,
                                 isReceiptScanning = uiState.isReceiptScanning,
@@ -400,6 +400,21 @@ fun LedgerScreen(
                                     categoryFilter = ""
                                     chartDetailCategory = ""
                                     chartDetailTypeName = ""
+                                    openBoard(LedgerBoard.LEDGER)
+                                }
+                            )
+
+                            LedgerBoard.DASHBOARD -> DashboardOverviewBoard(
+                                summary = dashboardSummary,
+                                budgetConfig = uiState.budgetConfig,
+                                currentMonthSummary = currentMonthSummary,
+                                topCategories = currentMonthTopCategories,
+                                accountSnapshots = accountSnapshots,
+                                totalRecordCount = uiState.entries.size,
+                                onOpenQuickEntryClick = {
+                                    openBoard(LedgerBoard.QUICK_ENTRY)
+                                },
+                                onOpenLedgerClick = {
                                     openBoard(LedgerBoard.LEDGER)
                                 }
                             )
@@ -450,7 +465,7 @@ fun LedgerScreen(
                                 },
                                 onEditClick = { entry ->
                                     onEditClick(entry)
-                                    openBoard(LedgerBoard.DASHBOARD)
+                                    openBoard(LedgerBoard.QUICK_ENTRY)
                                 },
                                 onDeleteClick = onDeleteClick
                             )
@@ -478,7 +493,7 @@ fun LedgerScreen(
                                 templates = uiState.templates,
                                 onApplyTemplateClick = { template ->
                                     onApplyTemplateClick(template)
-                                    openBoard(LedgerBoard.DASHBOARD)
+                                    openBoard(LedgerBoard.QUICK_ENTRY)
                                 },
                                 onDeleteTemplateClick = onDeleteTemplateClick
                             )
@@ -514,7 +529,7 @@ fun LedgerScreen(
                                 },
                                 onEditClick = { entry ->
                                     onEditClick(entry)
-                                    openBoard(LedgerBoard.DASHBOARD)
+                                    openBoard(LedgerBoard.QUICK_ENTRY)
                                 },
                                 onDeleteClick = onDeleteClick
                             )
@@ -527,13 +542,9 @@ fun LedgerScreen(
 }
 
 @Composable
-private fun DashboardBoard(
-    summary: LedgerSummary,
-    budgetConfig: LedgerBudgetConfig,
-    currentMonthSummary: LedgerSummary,
-    topCategories: List<CategorySpend>,
-    accountSnapshots: List<AccountSnapshot>,
-    totalRecordCount: Int,
+private fun QuickEntryBoard(
+    accountOptions: List<String>,
+    categoryOptions: List<String>,
     recentEntries: List<LedgerEntry>,
     form: LedgerFormState,
     isReceiptScanning: Boolean,
@@ -555,11 +566,13 @@ private fun DashboardBoard(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 22.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
             EntryEditorSection(
+                accountOptions = accountOptions,
+                categoryOptions = categoryOptions,
                 form = form,
                 onTypeSelected = onTypeSelected,
                 onAmountChanged = onAmountChanged,
@@ -575,20 +588,6 @@ private fun DashboardBoard(
                 onScanReceiptClick = onScanReceiptClick,
                 isReceiptScanning = isReceiptScanning
             )
-        }
-
-        item {
-            LedgerHeroCard(
-                summary = summary,
-                budgetConfig = budgetConfig,
-                currentMonthSummary = currentMonthSummary,
-                recordCount = totalRecordCount,
-                topCategories = topCategories
-            )
-        }
-
-        item {
-            AccountOverviewSection(accountSnapshots = accountSnapshots)
         }
 
         item {
@@ -631,6 +630,60 @@ private fun DashboardBoard(
                     onDeleteClick = { onDeleteClick(entry) }
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun DashboardOverviewBoard(
+    summary: LedgerSummary,
+    budgetConfig: LedgerBudgetConfig,
+    currentMonthSummary: LedgerSummary,
+    topCategories: List<CategorySpend>,
+    accountSnapshots: List<AccountSnapshot>,
+    totalRecordCount: Int,
+    onOpenQuickEntryClick: () -> Unit,
+    onOpenLedgerClick: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 22.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            LedgerHeroCard(
+                summary = summary,
+                budgetConfig = budgetConfig,
+                currentMonthSummary = currentMonthSummary,
+                recordCount = totalRecordCount,
+                topCategories = topCategories
+            )
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = onOpenQuickEntryClick,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Text("\u53bb\u5feb\u8bb0")
+                }
+                OutlinedButton(
+                    onClick = onOpenLedgerClick,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Text("\u770b\u8d26\u672c")
+                }
+            }
+        }
+
+        item {
+            AccountOverviewSection(accountSnapshots = accountSnapshots)
         }
     }
 }
@@ -2188,6 +2241,8 @@ private fun TemplateCard(
 
 @Composable
 private fun EntryEditorSection(
+    accountOptions: List<String>,
+    categoryOptions: List<String>,
     form: LedgerFormState,
     onTypeSelected: (LedgerEntryType) -> Unit,
     onAmountChanged: (String) -> Unit,
@@ -2204,6 +2259,28 @@ private fun EntryEditorSection(
     isReceiptScanning: Boolean
 ) {
     val accentColor = if (form.type == LedgerEntryType.INCOME) IncomeTint else ExpenseTint
+    val accountSelectionOptions = remember(accountOptions, form.account) {
+        (accountSuggestions() + accountOptions + listOf(form.account))
+            .filter { option -> option.isNotBlank() }
+            .distinct()
+    }
+    val categorySelectionOptions = remember(categoryOptions, form.type, form.category) {
+        (categorySuggestionsFor(form.type) + categoryOptions + listOf(form.category))
+            .filter { option -> option.isNotBlank() }
+            .distinct()
+    }
+    val advancedByDefault = form.isEditing ||
+        form.note.isNotBlank() ||
+        form.templateRecurrence != LedgerTemplateRecurrence.NONE ||
+        form.receiptText.isNotBlank()
+    var showAdvanced by rememberSaveable(
+        form.isEditing,
+        form.note,
+        form.templateRecurrence,
+        form.receiptText
+    ) {
+        mutableStateOf(advancedByDefault)
+    }
 
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -2212,8 +2289,8 @@ private fun EntryEditorSection(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2222,16 +2299,16 @@ private fun EntryEditorSection(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = if (form.isEditing) "\u7f16\u8f91\u8bb0\u5f55" else "\u5feb\u901f\u8bb0\u4e00\u7b14",
-                        style = MaterialTheme.typography.titleLarge
+                        text = if (form.isEditing) "\u7f16\u8f91\u8bb0\u5f55" else "\u5feb\u901f\u8bb0\u8d26",
+                        style = MaterialTheme.typography.titleMedium
                     )
                     Text(
                         text = if (form.isEditing) {
-                            "\u76f4\u63a5\u4fee\u6539\u91d1\u989d\u3001\u5206\u7c7b\u548c\u5907\u6ce8"
+                            "\u4fee\u6539\u91d1\u989d\u3001\u8d26\u6237\u3001\u5206\u7c7b"
                         } else {
-                            "\u652f\u6301\u624b\u52a8\u5f55\u5165\u3001\u5957\u7528\u6a21\u677f\u548c\u5c0f\u7968\u8bc6\u522b"
+                            "\u9ed8\u8ba4\u5148\u663e\u793a\u5feb\u8bb0\uff0c\u8be6\u7ec6\u9879\u53ef\u4ee5\u5c55\u5f00"
                         },
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -2254,9 +2331,9 @@ private fun EntryEditorSection(
                     shape = RoundedCornerShape(18.dp)
                 ) {
                     Text(
-                        text = "\u5f53\u524d\u662f\u7f16\u8f91\u6a21\u5f0f\uff0c\u4fdd\u5b58\u540e\u4f1a\u76f4\u63a5\u66f4\u65b0\u8fd9\u7b14\u8d26\u3002",
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = "\u5f53\u524d\u662f\u7f16\u8f91\u6a21\u5f0f\uff0c\u4fdd\u5b58\u540e\u4f1a\u76f4\u63a5\u8986\u76d6\u539f\u8bb0\u5f55\u3002",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
@@ -2303,139 +2380,31 @@ private fun EntryEditorSection(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedTextField(
+                SelectionField(
                     value = form.account,
-                    onValueChange = onAccountChanged,
+                    label = "\u8d26\u6237",
+                    options = accountSelectionOptions,
                     modifier = Modifier.weight(1f),
-                    label = {
-                        Text("\u8d26\u6237")
+                    onOptionSelected = { selectedAccount ->
+                        onSuggestedAccountSelected(selectedAccount)
                     },
-                    singleLine = true,
-                    shape = RoundedCornerShape(18.dp)
+                    onCustomValueAdded = { customAccount ->
+                        onAccountChanged(customAccount)
+                    }
                 )
-                OutlinedTextField(
+                SelectionField(
                     value = form.category,
-                    onValueChange = onCategoryChanged,
+                    label = "\u5206\u7c7b",
+                    options = categorySelectionOptions,
                     modifier = Modifier.weight(1f),
-                    label = {
-                        Text("\u5206\u7c7b")
+                    onOptionSelected = { selectedCategory ->
+                        onSuggestedCategorySelected(selectedCategory)
                     },
-                    singleLine = true,
-                    shape = RoundedCornerShape(18.dp)
-                )
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                SectionEyebrow("\u5e38\u7528\u8d26\u6237")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(accountSuggestions()) { suggestion ->
-                        FilterChip(
-                            selected = suggestion == form.account,
-                            onClick = {
-                                onSuggestedAccountSelected(suggestion)
-                            },
-                            label = {
-                                Text(suggestion)
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                selectedLabelColor = MaterialTheme.colorScheme.primary
-                            )
-                        )
+                    onCustomValueAdded = { customCategory ->
+                        onCategoryChanged(customCategory)
                     }
-                }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                SectionEyebrow("\u5feb\u6377\u5206\u7c7b")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(categorySuggestionsFor(form.type)) { suggestion ->
-                        FilterChip(
-                            selected = suggestion == form.category,
-                            onClick = {
-                                onSuggestedCategorySelected(suggestion)
-                            },
-                            label = {
-                                Text(suggestion)
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = accentColor.copy(alpha = 0.15f),
-                                selectedLabelColor = accentColor
-                            )
-                        )
-                    }
-                }
-            }
-
-            OutlinedTextField(
-                value = form.note,
-                onValueChange = onNoteChanged,
-                modifier = Modifier.fillMaxWidth(),
-                label = {
-                    Text("\u5907\u6ce8")
-                },
-                minLines = 1,
-                maxLines = 2,
-                shape = RoundedCornerShape(18.dp)
-            )
-
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                SectionEyebrow("\u6a21\u677f")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(LedgerTemplateRecurrence.entries.toList()) { recurrence ->
-                        FilterChip(
-                            selected = recurrence == form.templateRecurrence,
-                            onClick = {
-                                onTemplateRecurrenceSelected(recurrence)
-                            },
-                            label = {
-                                Text(recurrence.displayName())
-                            }
-                        )
-                    }
-                }
-            }
-
-            if (form.receiptText.isNotBlank()) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(20.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = "\u6700\u8fd1\u4e00\u6b21\u5c0f\u7968\u8bc6\u522b",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = form.receiptText.take(120),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-            }
-
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(20.dp)
-            ) {
-                Text(
-                    text = if (form.templateRecurrence == LedgerTemplateRecurrence.NONE) {
-                        "\u586b\u5b8c\u540e\u53ef\u4ee5\u76f4\u63a5\u4fdd\u5b58\uff0c\u4e5f\u53ef\u4ee5\u987a\u624b\u5b58\u6210\u6a21\u677f\u3002"
-                    } else {
-                        "\u5b58\u4e3a\u6a21\u677f\u540e\uff0c\u4f1a\u6309${form.templateRecurrence.displayName()}\u81ea\u52a8\u8865\u8d26\u3002"
-                    },
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -2453,41 +2422,19 @@ private fun EntryEditorSection(
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = onSaveClick,
-                    modifier = Modifier.weight(1.2f),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+            if (form.isEditing) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(if (form.isEditing) "\u4fdd\u5b58\u4fee\u6539" else "\u4fdd\u5b58\u8bb0\u5f55")
-                }
-                OutlinedButton(
-                    onClick = onSaveTemplateClick,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(20.dp)
-                ) {
-                    Text(if (form.templateRecurrence == LedgerTemplateRecurrence.NONE) "\u5b58\u4e3a\u6a21\u677f" else "\u5b58\u4e3a\u5468\u671f")
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onScanReceiptClick,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(20.dp)
-                ) {
-                    Text(
-                        if (isReceiptScanning) "\u8bc6\u522b\u4e2d..." else "\u8bc6\u522b\u5c0f\u7968"
-                    )
-                }
-                if (form.isEditing) {
+                    Button(
+                        onClick = onSaveClick,
+                        modifier = Modifier.weight(1.15f),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+                    ) {
+                        Text("\u4fdd\u5b58\u4fee\u6539")
+                    }
                     OutlinedButton(
                         onClick = onCancelEditClick,
                         modifier = Modifier.weight(1f),
@@ -2496,8 +2443,237 @@ private fun EntryEditorSection(
                         Text("\u53d6\u6d88\u7f16\u8f91")
                     }
                 }
+            } else {
+                Button(
+                    onClick = onSaveClick,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+                ) {
+                    Text("\u4fdd\u5b58\u8bb0\u5f55")
+                }
+            }
+
+            TextButton(
+                onClick = { showAdvanced = !showAdvanced },
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text(
+                    if (showAdvanced) "\u6536\u8d77\u8be6\u7ec6\u9879" else "\u5c55\u5f00\u8be6\u7ec6\u9879"
+                )
+            }
+
+            AnimatedVisibility(visible = showAdvanced) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = form.note,
+                        onValueChange = onNoteChanged,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = {
+                            Text("\u5907\u6ce8")
+                        },
+                        minLines = 1,
+                        maxLines = 2,
+                        shape = RoundedCornerShape(18.dp)
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SectionEyebrow("\u6a21\u677f")
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(LedgerTemplateRecurrence.entries.toList()) { recurrence ->
+                                FilterChip(
+                                    selected = recurrence == form.templateRecurrence,
+                                    onClick = {
+                                        onTemplateRecurrenceSelected(recurrence)
+                                    },
+                                    label = {
+                                        Text(recurrence.displayName())
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    if (form.receiptText.isNotBlank()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(20.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "\u6700\u8fd1\u4e00\u6b21\u8bc6\u522b\u7ed3\u679c",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = form.receiptText.take(120),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(20.dp)
+                    ) {
+                        Text(
+                            text = if (form.templateRecurrence == LedgerTemplateRecurrence.NONE) {
+                                "\u8be6\u7ec6\u9879\u91cc\u53ef\u4ee5\u7edf\u4e00\u8bbe\u5907\u6ce8\u3001\u5b58\u6210\u6a21\u677f\uff0c\u6216\u8005\u76f4\u63a5\u626b\u5c0f\u7968\u586b\u5145\u4fe1\u606f\u3002"
+                            } else {
+                                "\u5f53\u524d\u6a21\u677f\u4f1a\u6309${form.templateRecurrence.displayName()}\u81ea\u52a8\u8865\u8d26\u3002"
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onScanReceiptClick,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(20.dp)
+                        ) {
+                            Text(
+                                if (isReceiptScanning) "\u8bc6\u522b\u4e2d..." else "\u8bc6\u522b\u5c0f\u7968"
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = onSaveTemplateClick,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(20.dp)
+                        ) {
+                            Text(
+                                if (form.templateRecurrence == LedgerTemplateRecurrence.NONE) {
+                                    "\u5b58\u4e3a\u6a21\u677f"
+                                } else {
+                                    "\u5b58\u4e3a\u5468\u671f"
+                                }
+                            )
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun SelectionField(
+    value: String,
+    label: String,
+    options: List<String>,
+    modifier: Modifier = Modifier,
+    onOptionSelected: (String) -> Unit,
+    onCustomValueAdded: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var showCustomDialog by rememberSaveable { mutableStateOf(false) }
+    var customValue by rememberSaveable(label, value) { mutableStateOf(value) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded },
+        modifier = modifier
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            modifier = Modifier
+                .menuAnchor()
+                .fillMaxWidth(),
+            readOnly = true,
+            singleLine = true,
+            label = {
+                Text(label)
+            },
+            trailingIcon = {
+                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+            },
+            shape = RoundedCornerShape(18.dp)
+        )
+
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Text(option)
+                    },
+                    onClick = {
+                        expanded = false
+                        onOptionSelected(option)
+                    }
+                )
+            }
+            DropdownMenuItem(
+                text = {
+                    Text("\u81ea\u5b9a\u4e49\u6dfb\u52a0")
+                },
+                onClick = {
+                    expanded = false
+                    customValue = value
+                    showCustomDialog = true
+                }
+            )
+        }
+    }
+
+    if (showCustomDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {
+                showCustomDialog = false
+            },
+            title = {
+                Text("\u81ea\u5b9a\u4e49$label")
+            },
+            text = {
+                OutlinedTextField(
+                    value = customValue,
+                    onValueChange = { input ->
+                        customValue = input.take(12)
+                    },
+                    singleLine = true,
+                    label = {
+                        Text(label)
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val normalized = customValue.trim()
+                        if (normalized.isNotBlank()) {
+                            onCustomValueAdded(normalized)
+                            showCustomDialog = false
+                        }
+                    }
+                ) {
+                    Text("\u786e\u5b9a")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showCustomDialog = false
+                    }
+                ) {
+                    Text("\u53d6\u6d88")
+                }
+            }
+        )
     }
 }
 
@@ -2932,6 +3108,7 @@ private data class ChartFocus(
 )
 
 private enum class LedgerBoard {
+    QUICK_ENTRY,
     DASHBOARD,
     STATS,
     BUDGET,
@@ -2946,7 +3123,8 @@ private enum class LedgerTrendGranularity {
 
 private fun LedgerBoard.displayName(): String {
     return when (this) {
-        LedgerBoard.DASHBOARD -> "\u603b\u89c8"
+        LedgerBoard.QUICK_ENTRY -> "\u5feb\u8bb0"
+        LedgerBoard.DASHBOARD -> "\u4eea\u8868\u76d8"
         LedgerBoard.STATS -> "\u5206\u6790"
         LedgerBoard.BUDGET -> "\u89c4\u5212"
         LedgerBoard.TOOLS -> "\u6570\u636e"
@@ -2956,7 +3134,8 @@ private fun LedgerBoard.displayName(): String {
 
 private fun LedgerBoard.subtitle(): String {
     return when (this) {
-        LedgerBoard.DASHBOARD -> "\u4f59\u989d\u6982\u89c8\u3001\u5feb\u901f\u8bb0\u8d26\u548c\u6700\u8fd1\u52a8\u6001"
+        LedgerBoard.QUICK_ENTRY -> "\u5feb\u901f\u8bb0\u8d26\u548c\u6700\u8fd1\u8d26\u5355"
+        LedgerBoard.DASHBOARD -> "\u4f59\u989d\u603b\u89c8\u3001\u8d26\u6237\u770b\u677f\u548c\u6838\u5fc3\u6307\u6807"
         LedgerBoard.STATS -> "\u6536\u652f\u56fe\u8868\u3001\u8d8b\u52bf\u548c\u5206\u7c7b\u660e\u7ec6"
         LedgerBoard.BUDGET -> "\u9884\u7b97\u3001\u5feb\u6377\u6a21\u677f\u548c\u5468\u671f\u6a21\u677f\u90fd\u5728\u8fd9\u91cc"
         LedgerBoard.TOOLS -> "\u5907\u4efd\u3001\u5bfc\u5165\u548c\u6362\u673a\u8fc1\u79fb"

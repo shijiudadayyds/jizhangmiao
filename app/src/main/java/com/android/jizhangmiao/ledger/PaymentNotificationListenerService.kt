@@ -12,7 +12,17 @@ import kotlinx.coroutines.launch
 class PaymentNotificationListenerService : NotificationListenerService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        activeNotifications
+            ?.forEach(::importNotificationIfMatched)
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        importNotificationIfMatched(sbn)
+    }
+
+    private fun importNotificationIfMatched(sbn: StatusBarNotification) {
         val candidate = parseAutoImportedEntry(sbn) ?: return
         serviceScope.launch {
             LedgerStore.getInstance(applicationContext).importAutoEntry(candidate)

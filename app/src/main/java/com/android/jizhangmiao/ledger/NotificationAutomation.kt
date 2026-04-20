@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import android.service.notification.StatusBarNotification
+import android.text.TextUtils
 import androidx.core.app.NotificationManagerCompat
 import com.android.jizhangmiao.ledger.data.LedgerEntryType
 import com.android.jizhangmiao.ledger.data.sanitizeAmountInput
@@ -36,33 +37,50 @@ internal data class AutoImportedEntry(
 )
 
 private val incomeKeywords = listOf(
-    "收款成功",
-    "成功收款",
-    "收款到账",
-    "到账提醒",
-    "到账通知",
-    "二维码收款",
-    "支付宝到账",
-    "微信支付收款",
-    "已收款"
+    "\u6536\u6b3e\u6210\u529f",
+    "\u6210\u529f\u6536\u6b3e",
+    "\u6536\u6b3e\u5230\u8d26",
+    "\u5230\u8d26\u901a\u77e5",
+    "\u5230\u8d26\u63d0\u9192",
+    "\u4e8c\u7ef4\u7801\u6536\u6b3e",
+    "\u652f\u4ed8\u5b9d\u5230\u8d26",
+    "\u5fae\u4fe1\u652f\u4ed8\u6536\u6b3e",
+    "\u5df2\u6536\u6b3e",
+    "moneyreceived",
+    "paymentreceived"
 )
 
 private val expenseKeywords = listOf(
-    "支付成功",
-    "付款成功",
-    "支付了",
-    "付款了",
-    "已支付",
-    "向商家付款",
-    "消费支出",
-    "微信支付",
-    "支付宝支付",
-    "付款码"
+    "\u652f\u4ed8\u6210\u529f",
+    "\u4ed8\u6b3e\u6210\u529f",
+    "\u5df2\u652f\u4ed8",
+    "\u5df2\u4ed8\u6b3e",
+    "\u5411\u5546\u5bb6\u4ed8\u6b3e",
+    "\u6d88\u8d39\u652f\u51fa",
+    "\u4ed8\u6b3e\u7801",
+    "\u5b9e\u4ed8",
+    "\u5fae\u4fe1\u652f\u4ed8",
+    "\u652f\u4ed8\u5b9d\u652f\u4ed8",
+    "paymentsuccessful",
+    "paidsuccessfully"
 )
 
+private val transactionKeywords = (incomeKeywords + expenseKeywords + listOf(
+    "\u652f\u4ed8",
+    "\u4ed8\u6b3e",
+    "\u6536\u6b3e",
+    "\u5230\u8d26",
+    "\u6d88\u8d39",
+    "payment",
+    "received"
+)).distinct()
+
 private val amountPatterns = listOf(
-    Regex("""[￥¥]\s*([0-9]+(?:\.[0-9]{1,2})?)"""),
-    Regex("""([0-9]+(?:\.[0-9]{1,2})?)\s*元""")
+    Regex(
+        """(?:[\uFFE5\u00A5]|RMB|CNY)\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)""",
+        RegexOption.IGNORE_CASE
+    ),
+    Regex("""([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)\s*(?:\u5143|\u5706)""")
 )
 
 internal fun queryNotificationAutomationStatus(context: Context): NotificationAutomationStatus {
@@ -136,14 +154,20 @@ internal fun parseAutoImportedEntry(sbn: StatusBarNotification): AutoImportedEnt
         return null
     }
 
-    val type = detectEntryType(mergedText) ?: return null
+    val normalizedContent = normalizeForMatching(mergedText)
+    val type = detectEntryType(normalizedContent) ?: return null
     val amountInCents = extractAmountInCents(mergedText) ?: return null
-    val sourceName = if (packageName == WeChatPackageName) "微信支付" else "支付宝"
-    val account = if (packageName == WeChatPackageName) "微信" else "支付宝"
     val happenedAt = sbn.postTime.takeIf { it > 0L } ?: System.currentTimeMillis()
-    val normalizedText = mergedText
-        .replace(Regex("""\s+"""), " ")
-        .trim()
+    val sourceName = if (packageName == WeChatPackageName) {
+        "\u5fae\u4fe1\u652f\u4ed8"
+    } else {
+        "\u652f\u4ed8\u5b9d"
+    }
+    val account = if (packageName == WeChatPackageName) {
+        "\u5fae\u4fe1"
+    } else {
+        "\u652f\u4ed8\u5b9d"
+    }
     val title = notification.extras?.getCharSequence(Notification.EXTRA_TITLE)
         ?.toString()
         ?.trim()
@@ -156,22 +180,22 @@ internal fun parseAutoImportedEntry(sbn: StatusBarNotification): AutoImportedEnt
                 sbn.key,
                 type.name,
                 amountInCents.toString(),
-                normalizedText.lowercase(Locale.ROOT)
+                normalizeForMatching(mergedText)
             ).joinToString("|")
         ),
         type = type,
         amountInCents = amountInCents,
         account = account,
-        category = detectCategory(type, normalizedText),
+        category = detectCategory(type, normalizedContent),
         note = buildString {
-            append("自动记账：")
+            append("\u81ea\u52a8\u8bb0\u8d26\uff1a")
             append(sourceName)
             if (title.isNotBlank()) {
                 append(" / ")
                 append(title.take(24))
             }
         },
-        receiptText = normalizedText.take(400),
+        receiptText = mergedText.take(400),
         happenedAt = happenedAt
     )
 }
@@ -185,35 +209,63 @@ private fun canLaunchPackage(
 
 private fun collectNotificationText(notification: Notification): String {
     val extras = notification.extras
-    val textLines = extras?.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
-        ?.joinToString("\n") { item -> item.toString() }
-        .orEmpty()
+    val rawTexts = mutableListOf<String>()
 
-    return listOfNotNull(
+    listOfNotNull(
         extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
         extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
         extras?.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(),
         extras?.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString(),
-        notification.tickerText?.toString(),
-        textLines.takeIf { it.isNotBlank() }
-    ).map { item ->
-        item.replace(Regex("""\s+"""), " ").trim()
-    }.filter { item ->
-        item.isNotBlank()
-    }.distinct().joinToString("\n")
+        notification.tickerText?.toString()
+    ).forEach(rawTexts::add)
+
+    extras?.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+        ?.map(CharSequence::toString)
+        ?.forEach(rawTexts::add)
+
+    extras?.keySet()?.forEach { key ->
+        extras.getCharSequence(key)?.let { value ->
+            rawTexts += value.toString()
+        }
+        extras.getCharSequenceArray(key)
+            ?.map(CharSequence::toString)
+            ?.forEach(rawTexts::add)
+    }
+
+    return rawTexts
+        .map { text -> text.replace(Regex("""\s+"""), " ").trim() }
+        .filter { text -> text.isNotBlank() && !TextUtils.isDigitsOnly(text) }
+        .distinct()
+        .joinToString("\n")
 }
 
-private fun detectEntryType(content: String): LedgerEntryType? {
+private fun normalizeForMatching(content: String): String {
+    return content.lowercase(Locale.ROOT)
+        .replace(Regex("""\s+"""), "")
+        .replace(":", "")
+        .replace("\uff1a", "")
+}
+
+private fun detectEntryType(normalizedContent: String): LedgerEntryType? {
     return when {
-        incomeKeywords.any(content::contains) -> LedgerEntryType.INCOME
-        expenseKeywords.any(content::contains) -> LedgerEntryType.EXPENSE
+        incomeKeywords.any(normalizedContent::contains) -> LedgerEntryType.INCOME
+        expenseKeywords.any(normalizedContent::contains) -> LedgerEntryType.EXPENSE
+        normalizedContent.contains("\u6536\u6b3e") || normalizedContent.contains("\u5230\u8d26") -> {
+            LedgerEntryType.INCOME
+        }
+        normalizedContent.contains("\u652f\u4ed8") ||
+            normalizedContent.contains("\u4ed8\u6b3e") ||
+            normalizedContent.contains("\u6d88\u8d39") ||
+            normalizedContent.contains("\u652f\u51fa") -> {
+            LedgerEntryType.EXPENSE
+        }
         else -> null
     }
 }
 
 private fun detectCategory(
     type: LedgerEntryType,
-    content: String
+    normalizedContent: String
 ): String {
     val keywordMap = when (type) {
         LedgerEntryType.EXPENSE -> expenseCategoryKeywordMap
@@ -221,22 +273,38 @@ private fun detectCategory(
     }
 
     return keywordMap.entries.firstOrNull { (_, keywords) ->
-        keywords.any(content::contains)
+        keywords.map(::normalizeForMatching).any(normalizedContent::contains)
     }?.key ?: defaultCategoryFor(type)
 }
 
 private fun extractAmountInCents(content: String): Long? {
-    return amountPatterns
-        .flatMap { pattern ->
-            pattern.findAll(content).mapNotNull { match ->
-                match.groupValues
-                    .drop(1)
-                    .firstOrNull { value -> value.isNotBlank() }
-                    ?.let(::sanitizeAmountInput)
-                    ?.toAmountInCents()
-            }.toList()
-        }
-        .maxOrNull()
+    val lines = content
+        .lineSequence()
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .toList()
+    val prioritizedLines = lines.filter { line ->
+        val normalizedLine = normalizeForMatching(line)
+        transactionKeywords.any(normalizedLine::contains)
+    }
+
+    return (prioritizedLines + lines)
+        .asSequence()
+        .flatMap { line -> extractAmountsFromLine(line).asSequence() }
+        .firstOrNull()
+}
+
+private fun extractAmountsFromLine(line: String): List<Long> {
+    return amountPatterns.flatMap { pattern ->
+        pattern.findAll(line).mapNotNull { match ->
+            match.groupValues
+                .drop(1)
+                .firstOrNull { value -> value.isNotBlank() }
+                ?.replace(",", "")
+                ?.let(::sanitizeAmountInput)
+                ?.toAmountInCents()
+        }.toList()
+    }
 }
 
 private fun sha256Hex(value: String): String {
