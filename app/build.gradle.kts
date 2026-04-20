@@ -1,11 +1,61 @@
+import java.io.File
+import java.io.FileInputStream
+import java.security.KeyStore
+import java.security.MessageDigest
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
 
+fun certificateSha256Hex(
+    storeFile: File?,
+    storePassword: String?,
+    keyAlias: String?,
+    keyPassword: String?
+): String {
+    if (
+        storeFile == null ||
+        !storeFile.exists() ||
+        storePassword.isNullOrBlank() ||
+        keyAlias.isNullOrBlank()
+    ) {
+        return ""
+    }
+
+    return runCatching {
+        val keyStore = KeyStore.getInstance(KeyStore.getDefaultType())
+        FileInputStream(storeFile).use { input ->
+            keyStore.load(input, storePassword.toCharArray())
+        }
+        val certificate = keyStore.getCertificate(keyAlias) ?: return ""
+        MessageDigest.getInstance("SHA-256")
+            .digest(certificate.encoded)
+            .joinToString("") { byte -> "%02X".format(byte) }
+    }.getOrDefault("")
+}
+
+fun xorObfuscateHex(
+    value: String,
+    key: Int = 0x5A
+): String {
+    return value.encodeToByteArray()
+        .joinToString("") { byte -> "%02X".format((byte.toInt() xor key) and 0xFF) }
+}
+
 android {
     namespace = "com.android.jizhangmiao"
     compileSdk = 36
+
+    val releaseSigning = signingConfigs.getByName("debug")
+    val releaseCertSha256Obfuscated = xorObfuscateHex(
+        certificateSha256Hex(
+            storeFile = releaseSigning.storeFile,
+            storePassword = releaseSigning.storePassword,
+            keyAlias = releaseSigning.keyAlias,
+            keyPassword = releaseSigning.keyPassword
+        )
+    )
 
     defaultConfig {
         applicationId = "com.android.jizhangmiao"
@@ -13,6 +63,8 @@ android {
         targetSdk = 36
         versionCode = 102
         versionName = "1.0.2"
+        resValue("bool", "security_checks_enabled", "false")
+        resValue("string", "release_cert_sha256_obfuscated", "\"\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -21,7 +73,11 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            isJniDebuggable = false
+            signingConfig = releaseSigning
+            resValue("bool", "security_checks_enabled", "true")
+            resValue("string", "release_cert_sha256_obfuscated", "\"$releaseCertSha256Obfuscated\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -37,6 +93,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = false
+        resValues = true
     }
 
     androidResources {

@@ -19,6 +19,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val securityVerdict = AppSecurity.evaluate(applicationContext)
+        if (!securityVerdict.isTrusted) {
+            setContent {
+                JizhangmiaoTheme {
+                    SecurityBlockedScreen(
+                        reason = securityVerdict.reason ?: "\u5f53\u524d\u73af\u5883\u4e0d\u53d7\u4fe1\u4efb"
+                    )
+                }
+            }
+            return
+        }
         setContent {
             JizhangmiaoTheme {
                 val viewModel: LedgerViewModel = viewModel(

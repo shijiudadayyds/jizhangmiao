@@ -54,6 +54,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,11 +70,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.android.jizhangmiao.ledger.data.LedgerBudgetConfig
 import com.android.jizhangmiao.ledger.data.LedgerEntry
 import com.android.jizhangmiao.ledger.data.LedgerEntryType
@@ -549,19 +555,9 @@ private fun DashboardBoard(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 22.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
-            LedgerHeroCard(
-                summary = summary,
-                budgetConfig = budgetConfig,
-                currentMonthSummary = currentMonthSummary,
-                recordCount = totalRecordCount,
-                topCategories = topCategories
-            )
-        }
-
         item {
             EntryEditorSection(
                 form = form,
@@ -578,6 +574,16 @@ private fun DashboardBoard(
                 onSaveTemplateClick = onSaveTemplateClick,
                 onScanReceiptClick = onScanReceiptClick,
                 isReceiptScanning = isReceiptScanning
+            )
+        }
+
+        item {
+            LedgerHeroCard(
+                summary = summary,
+                budgetConfig = budgetConfig,
+                currentMonthSummary = currentMonthSummary,
+                recordCount = totalRecordCount,
+                topCategories = topCategories
             )
         }
 
@@ -917,11 +923,29 @@ private fun ToolsBoard(
     onExportClick: () -> Unit,
     onImportClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val automationStatus = rememberNotificationAutomationStatus()
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
+        item {
+            AutomationSection(
+                status = automationStatus,
+                onOpenNotificationAccess = {
+                    openNotificationAutomationSettings(context)
+                },
+                onOpenWeChat = {
+                    launchExternalPaymentApp(context, WeChatPackageName)
+                },
+                onOpenAlipay = {
+                    launchExternalPaymentApp(context, AlipayPackageName)
+                }
+            )
+        }
+
         item {
             ToolSection(
                 onExportClick = onExportClick,
@@ -929,6 +953,30 @@ private fun ToolsBoard(
             )
         }
     }
+}
+
+@Composable
+private fun rememberNotificationAutomationStatus(): NotificationAutomationStatus {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var status by remember(context) {
+        mutableStateOf(queryNotificationAutomationStatus(context))
+    }
+
+    DisposableEffect(context, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                status = queryNotificationAutomationStatus(context)
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    return status
 }
 
 @Composable
@@ -1019,17 +1067,17 @@ private fun LedgerHeroCard(
                         )
                     )
                 )
-                .padding(22.dp)
+                .padding(16.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(
                     color = Color.White.copy(alpha = 0.14f),
                     shape = RoundedCornerShape(999.dp)
                 ) {
                     Text(
                         text = "\u8d26\u672c\u4eea\u8868\u76d8",
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
                         color = Color.White
                     )
                 }
@@ -1037,18 +1085,20 @@ private fun LedgerHeroCard(
                 Text(
                     text = formatCurrency(summary.balanceInCents),
                     style = MaterialTheme.typography.displayLarge.copy(
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 34.sp,
+                        lineHeight = 38.sp
                     ),
                     color = Color.White
                 )
 
                 Text(
                     text = "\u5f53\u524d\u7b5b\u9009\u4e0b\u5171 $recordCount \u7b14\u8bb0\u5f55\uff0c\u6536\u5165 ${formatCurrency(summary.incomeInCents)}\uff0c\u652f\u51fa ${formatCurrency(summary.expenseInCents)}",
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.9f)
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     HeroMetric(
                         modifier = Modifier.weight(1f),
                         title = "\u672c\u6708\u9884\u7b97",
@@ -1073,26 +1123,26 @@ private fun LedgerHeroCard(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
                             text = "\u672c\u6708\u9884\u7b97\u4f7f\u7528 ${(budgetRatio * 100).roundToInt()}%",
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.labelMedium,
                             color = Color.White
                         )
                         LinearProgressIndicator(
                             progress = { budgetRatio.coerceIn(0f, 1f) },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(8.dp)
+                                .height(6.dp)
                                 .clip(RoundedCornerShape(999.dp)),
                             color = Color(0xFFFFD7B7),
                             trackColor = Color.White.copy(alpha = 0.16f)
                         )
                         Text(
                             text = budgetInsightText(budgetConfig, currentMonthSummary),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.labelLarge,
                             color = Color.White.copy(alpha = 0.86f)
                         )
                     }
@@ -1116,17 +1166,17 @@ private fun HeroMetric(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 14.dp),
+                .padding(horizontal = 10.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelSmall,
                 color = Color.White.copy(alpha = 0.72f)
             )
             Text(
                 text = value,
-                style = MaterialTheme.typography.titleMedium.copy(
+                style = MaterialTheme.typography.labelLarge.copy(
                     fontFamily = FontFamily.Monospace
                 ),
                 color = Color.White
@@ -1144,8 +1194,8 @@ private fun AccountOverviewSection(accountSnapshots: List<AccountSnapshot>) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             SectionHeading(
                 title = "\u8d26\u6237\u770b\u677f",
@@ -1184,28 +1234,28 @@ private fun AccountSnapshotCard(snapshot: AccountSnapshot) {
     val accentColor = if (snapshot.balanceInCents >= 0L) IncomeTint else ExpenseTint
 
     Surface(
-        modifier = Modifier.width(220.dp),
+        modifier = Modifier.width(200.dp),
         color = accentColor.copy(alpha = 0.08f),
         shape = RoundedCornerShape(24.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
                 text = snapshot.account,
-                style = MaterialTheme.typography.titleLarge
+                style = MaterialTheme.typography.titleMedium
             )
             Text(
                 text = formatCurrency(snapshot.balanceInCents),
-                style = MaterialTheme.typography.headlineLarge.copy(fontFamily = FontFamily.Monospace),
+                style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace),
                 color = accentColor
             )
             Text(
                 text = "\u6536\u5165 ${formatCurrency(snapshot.incomeInCents)} / \u652f\u51fa ${formatCurrency(snapshot.expenseInCents)}",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -2162,8 +2212,8 @@ private fun EntryEditorSection(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2173,13 +2223,13 @@ private fun EntryEditorSection(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         text = if (form.isEditing) "\u7f16\u8f91\u8bb0\u5f55" else "\u5feb\u901f\u8bb0\u4e00\u7b14",
-                        style = MaterialTheme.typography.headlineLarge
+                        style = MaterialTheme.typography.titleLarge
                     )
                     Text(
                         text = if (form.isEditing) {
-                            "\u4f60\u53ef\u4ee5\u76f4\u63a5\u4fee\u6539\u91d1\u989d\u3001\u5206\u7c7b\u3001\u5907\u6ce8\u548c\u7c7b\u578b"
+                            "\u76f4\u63a5\u4fee\u6539\u91d1\u989d\u3001\u5206\u7c7b\u548c\u5907\u6ce8"
                         } else {
-                            "\u652f\u6301\u624b\u52a8\u5f55\u5165\u3001\u5957\u7528\u6a21\u677f\uff0c\u8fd8\u53ef\u4ee5\u8bc6\u522b\u5c0f\u7968"
+                            "\u652f\u6301\u624b\u52a8\u5f55\u5165\u3001\u5957\u7528\u6a21\u677f\u548c\u5c0f\u7968\u8bc6\u522b"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -2191,8 +2241,8 @@ private fun EntryEditorSection(
                 ) {
                     Text(
                         text = form.type.displayName(),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
                         color = accentColor
                     )
                 }
@@ -2204,15 +2254,18 @@ private fun EntryEditorSection(
                     shape = RoundedCornerShape(18.dp)
                 ) {
                     Text(
-                        text = "\u5f53\u524d\u662f\u7f16\u8f91\u6a21\u5f0f\uff0c\u4fdd\u5b58\u540e\u4f1a\u76f4\u63a5\u66f4\u65b0\u8fd9\u7b14\u8d26",
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        text = "\u5f53\u524d\u662f\u7f16\u8f91\u6a21\u5f0f\uff0c\u4fdd\u5b58\u540e\u4f1a\u76f4\u63a5\u66f4\u65b0\u8fd9\u7b14\u8d26\u3002",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 EntryTypeButton(
                     modifier = Modifier.weight(1f),
                     type = LedgerEntryType.EXPENSE,
@@ -2240,28 +2293,43 @@ private fun EntryEditorSection(
                         color = accentColor
                     )
                 },
-                textStyle = MaterialTheme.typography.headlineLarge.copy(
+                textStyle = MaterialTheme.typography.titleLarge.copy(
                     fontFamily = FontFamily.Monospace
                 ),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                shape = RoundedCornerShape(20.dp)
+                shape = RoundedCornerShape(18.dp)
             )
 
-            OutlinedTextField(
-                value = form.account,
-                onValueChange = onAccountChanged,
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                label = {
-                    Text("\u8d26\u6237")
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(20.dp)
-            )
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = form.account,
+                    onValueChange = onAccountChanged,
+                    modifier = Modifier.weight(1f),
+                    label = {
+                        Text("\u8d26\u6237")
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(18.dp)
+                )
+                OutlinedTextField(
+                    value = form.category,
+                    onValueChange = onCategoryChanged,
+                    modifier = Modifier.weight(1f),
+                    label = {
+                        Text("\u5206\u7c7b")
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(18.dp)
+                )
+            }
 
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 SectionEyebrow("\u5e38\u7528\u8d26\u6237")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(accountSuggestions()) { suggestion ->
                         FilterChip(
                             selected = suggestion == form.account,
@@ -2280,20 +2348,9 @@ private fun EntryEditorSection(
                 }
             }
 
-            OutlinedTextField(
-                value = form.category,
-                onValueChange = onCategoryChanged,
-                modifier = Modifier.fillMaxWidth(),
-                label = {
-                    Text("\u5206\u7c7b")
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(20.dp)
-            )
-
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 SectionEyebrow("\u5feb\u6377\u5206\u7c7b")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(categorySuggestionsFor(form.type)) { suggestion ->
                         FilterChip(
                             selected = suggestion == form.category,
@@ -2319,14 +2376,14 @@ private fun EntryEditorSection(
                 label = {
                     Text("\u5907\u6ce8")
                 },
-                minLines = 2,
-                maxLines = 3,
-                shape = RoundedCornerShape(20.dp)
+                minLines = 1,
+                maxLines = 2,
+                shape = RoundedCornerShape(18.dp)
             )
 
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionEyebrow("\u6a21\u677f\u5468\u671f")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SectionEyebrow("\u6a21\u677f")
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(LedgerTemplateRecurrence.entries.toList()) { recurrence ->
                         FilterChip(
                             selected = recurrence == form.templateRecurrence,
@@ -2349,12 +2406,12 @@ private fun EntryEditorSection(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
                             text = "\u6700\u8fd1\u4e00\u6b21\u5c0f\u7968\u8bc6\u522b",
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
@@ -2372,11 +2429,11 @@ private fun EntryEditorSection(
             ) {
                 Text(
                     text = if (form.templateRecurrence == LedgerTemplateRecurrence.NONE) {
-                        "\u8f93\u5165\u4fe1\u606f\u540e\u53ef\u4ee5\u76f4\u63a5\u4fdd\u5b58\uff0c\u4e5f\u53ef\u4ee5\u987a\u624b\u5b58\u6210\u5feb\u6377\u6a21\u677f\u3002"
+                        "\u586b\u5b8c\u540e\u53ef\u4ee5\u76f4\u63a5\u4fdd\u5b58\uff0c\u4e5f\u53ef\u4ee5\u987a\u624b\u5b58\u6210\u6a21\u677f\u3002"
                     } else {
-                        "\u5f53\u524d\u6a21\u677f\u5c06\u6309${form.templateRecurrence.displayName()}\u81ea\u52a8\u8865\u8d26\uff0c\u4fdd\u5b58\u4e3a\u6a21\u677f\u540e\u4ece\u4e0b\u4e00\u4e2a\u5468\u671f\u5f00\u59cb\u751f\u6548\u3002"
+                        "\u5b58\u4e3a\u6a21\u677f\u540e\uff0c\u4f1a\u6309${form.templateRecurrence.displayName()}\u81ea\u52a8\u8865\u8d26\u3002"
                     },
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -2389,14 +2446,17 @@ private fun EntryEditorSection(
                 ) {
                     Text(
                         text = form.errorMessage.orEmpty(),
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error
                     )
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Button(
                     onClick = onSaveClick,
                     modifier = Modifier.weight(1.2f),
@@ -2414,7 +2474,10 @@ private fun EntryEditorSection(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 OutlinedButton(
                     onClick = onScanReceiptClick,
                     modifier = Modifier.weight(1f),
@@ -2452,7 +2515,8 @@ private fun EntryTypeButton(
             onClick = onClick,
             modifier = modifier,
             shape = RoundedCornerShape(18.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+            colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
         ) {
             Text(type.displayName())
         }
@@ -2460,10 +2524,143 @@ private fun EntryTypeButton(
         OutlinedButton(
             onClick = onClick,
             modifier = modifier,
-            shape = RoundedCornerShape(18.dp)
+            shape = RoundedCornerShape(18.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
         ) {
             Text(type.displayName())
         }
+    }
+}
+
+@Composable
+private fun AutomationSection(
+    status: NotificationAutomationStatus,
+    onOpenNotificationAccess: () -> Unit,
+    onOpenWeChat: () -> Unit,
+    onOpenAlipay: () -> Unit
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = SectionShape
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            SectionHeading(
+                title = "\u81ea\u52a8\u8bb0\u8d26",
+                subtitle = "\u6253\u5f00\u901a\u77e5\u8bbf\u95ee\u540e\uff0c\u53ef\u4ece\u5fae\u4fe1\u548c\u652f\u4ed8\u5b9d\u7684\u6536\u4ed8\u6b3e\u901a\u77e5\u91cc\u81ea\u52a8\u751f\u6210\u8d26\u5355"
+            )
+
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    AutomationStatusPill(
+                        label = if (status.notificationAccessEnabled) "\u901a\u77e5\u5df2\u5f00"
+                        else "\u901a\u77e5\u672a\u5f00",
+                        active = status.notificationAccessEnabled
+                    )
+                }
+                item {
+                    AutomationStatusPill(
+                        label = if (status.isWeChatInstalled) "\u5fae\u4fe1\u5df2\u5b89\u88c5"
+                        else "\u5fae\u4fe1\u672a\u5b89\u88c5",
+                        active = status.isWeChatInstalled
+                    )
+                }
+                item {
+                    AutomationStatusPill(
+                        label = if (status.isAlipayInstalled) "\u652f\u4ed8\u5b9d\u5df2\u5b89\u88c5"
+                        else "\u652f\u4ed8\u5b9d\u672a\u5b89\u88c5",
+                        active = status.isAlipayInstalled
+                    )
+                }
+            }
+
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Text(
+                    text = if (status.notificationAccessEnabled) {
+                        "\u5f53\u524d\u5df2\u53ef\u4ee5\u81ea\u52a8\u76d1\u542c\u901a\u77e5\u3002\u4ea4\u6613\u6210\u529f\u540e\uff0c\u4f1a\u6309\u901a\u77e5\u91d1\u989d\u3001\u8d26\u6237\u548c\u5173\u952e\u8bcd\u76f4\u63a5\u5165\u8d26\u3002"
+                    } else {
+                        "\u8fd9\u7248\u662f\u901a\u8fc7\u7cfb\u7edf\u901a\u77e5\u505a\u81ea\u52a8\u8bb0\u8d26\uff0c\u4e0d\u7528\u7b49\u5fae\u4fe1/\u652f\u4ed8\u5b9d\u63d0\u4f9b\u79c1\u6709\u63a5\u53e3\u3002\u5148\u53bb\u8bbe\u7f6e\u91cc\u5f00\u901a\u901a\u77e5\u8bbf\u95ee\u6743\u9650\u3002"
+                    },
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Surface(
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Text(
+                    text = "\u53d7\u7b2c\u4e09\u65b9 App \u9650\u5236\uff0c\u8fd9\u91cc\u53ea\u80fd\u7a33\u5b9a\u6253\u5f00\u5fae\u4fe1/\u652f\u4ed8\u5b9d App\uff0c\u4e0d\u4fdd\u8bc1\u80fd\u76f4\u8fbe\u5177\u4f53\u4ed8\u6b3e\u7801\u9875\u9762\u3002",
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onOpenNotificationAccess,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Text(if (status.notificationAccessEnabled) "\u67e5\u770b\u6743\u9650" else "\u53bb\u5f00\u6743\u9650")
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(
+                    onClick = onOpenWeChat,
+                    modifier = Modifier.weight(1f),
+                    enabled = status.isWeChatInstalled,
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Text("\u6253\u5f00\u5fae\u4fe1")
+                }
+                OutlinedButton(
+                    onClick = onOpenAlipay,
+                    modifier = Modifier.weight(1f),
+                    enabled = status.isAlipayInstalled,
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Text("\u6253\u5f00\u652f\u4ed8\u5b9d")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutomationStatusPill(
+    label: String,
+    active: Boolean
+) {
+    Surface(
+        color = if (active) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        shape = RoundedCornerShape(999.dp)
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = if (active) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
     }
 }
 

@@ -7,6 +7,7 @@ import com.android.jizhangmiao.ledger.data.LedgerEntryType
 import com.android.jizhangmiao.ledger.data.LedgerTemplate
 import com.android.jizhangmiao.ledger.data.LedgerTemplateRecurrence
 import com.android.jizhangmiao.ledger.data.syncRecurringTemplates
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
@@ -91,5 +92,35 @@ class ExampleUnitTest {
         assertTrue(result.entries.all { entry -> entry.category == "\u4f4f\u623f" })
         assertTrue(result.templates.first().nextDueAt != null)
         assertTrue(result.templates.first().nextDueAt!! > now)
+    }
+
+    @Test
+    fun containsSuspiciousMarker_detectsKnownInjectionKeywords() {
+        val mapsContent = "/system/lib64/libfoo.so\n/data/local/tmp/frida-agent-64.so\n"
+
+        assertTrue(
+            containsSuspiciousMarker(
+                content = mapsContent,
+                markers = listOf("frida", "xposed")
+            )
+        )
+        assertFalse(
+            containsSuspiciousMarker(
+                content = "/system/lib64/libfoo.so\n/system/lib64/libbar.so\n",
+                markers = listOf("frida", "xposed")
+            )
+        )
+    }
+
+    @Test
+    fun decodeObfuscatedHex_restoresOriginalSecurityString() {
+        assertEquals(
+            "frida",
+            decodeObfuscatedHex("3C28333E3B")
+        )
+        assertEquals(
+            "de.robv.android.xposed.XposedBridge",
+            decodeObfuscatedHex("3E3F742835382C743B343E2835333E74222A35293F3E74022A35293F3E1828333E3D3F")
+        )
     }
 }

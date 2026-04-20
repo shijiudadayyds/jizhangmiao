@@ -2,6 +2,7 @@ package com.android.jizhangmiao.ledger.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.android.jizhangmiao.ledger.AutoImportedEntry
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,6 +53,47 @@ class LedgerStore private constructor(
     suspend fun deleteEntry(entry: LedgerEntry) {
         updateEntries { current ->
             current.filterNot { savedEntry -> savedEntry.id == entry.id }
+        }
+    }
+
+    internal suspend fun importAutoEntry(entry: AutoImportedEntry): Boolean {
+        return withContext(Dispatchers.IO) {
+            synchronized(writeLock) {
+                val signatures = loadAutoImportHistory().toMutableList()
+                if (signatures.contains(entry.signature)) {
+                    return@withContext false
+                }
+
+                val hasLikelyDuplicate = _entries.value.any { savedEntry ->
+                    savedEntry.type == entry.type &&
+                        savedEntry.amountInCents == entry.amountInCents &&
+                        savedEntry.account == entry.account &&
+                        savedEntry.happenedAt in (entry.happenedAt - AUTO_IMPORT_WINDOW_MILLIS)..(entry.happenedAt + AUTO_IMPORT_WINDOW_MILLIS)
+                }
+
+                signatures += entry.signature
+                persistAutoImportHistory(signatures.takeLast(MAX_AUTO_IMPORT_HISTORY))
+
+                if (hasLikelyDuplicate) {
+                    return@withContext false
+                }
+
+                val updatedEntries = normalizeEntries(
+                    _entries.value + LedgerEntry(
+                        type = entry.type,
+                        amountInCents = entry.amountInCents,
+                        account = entry.account,
+                        category = entry.category,
+                        note = entry.note,
+                        receiptText = entry.receiptText,
+                        happenedAt = entry.happenedAt,
+                        updatedAt = entry.happenedAt
+                    )
+                )
+                persistEntries(updatedEntries)
+                _entries.value = updatedEntries
+                true
+            }
         }
     }
 
@@ -223,6 +265,27 @@ class LedgerStore private constructor(
         }
     }
 
+    private fun loadAutoImportHistory(): List<String> {
+        val rawValue = preferences.getString(KEY_AUTO_IMPORT_HISTORY, null).orEmpty()
+        if (rawValue.isBlank()) {
+            return emptyList()
+        }
+
+        return runCatching {
+            val jsonArray = JSONArray(rawValue)
+            buildList {
+                for (index in 0 until jsonArray.length()) {
+                    val value = jsonArray.optString(index)
+                    if (value.isNotBlank()) {
+                        add(value)
+                    }
+                }
+            }
+        }.getOrElse {
+            emptyList()
+        }
+    }
+
     private fun normalizeEntries(entries: List<LedgerEntry>): List<LedgerEntry> {
         return entries.sortedWith(
             compareByDescending<LedgerEntry> { it.happenedAt }
@@ -253,6 +316,17 @@ class LedgerStore private constructor(
     private fun persistBudgetConfig(config: LedgerBudgetConfig) {
         preferences.edit()
             .putString(KEY_BUDGET_CONFIG, encodeBudgetConfig(config).toString())
+            .apply()
+    }
+
+    private fun persistAutoImportHistory(signatures: List<String>) {
+        preferences.edit()
+            .putString(
+                KEY_AUTO_IMPORT_HISTORY,
+                JSONArray().apply {
+                    signatures.forEach(::put)
+                }.toString()
+            )
             .apply()
     }
 
@@ -398,6 +472,9 @@ class LedgerStore private constructor(
         private const val KEY_ENTRIES = "entries"
         private const val KEY_TEMPLATES = "templates"
         private const val KEY_BUDGET_CONFIG = "budget_config"
+        private const val KEY_AUTO_IMPORT_HISTORY = "auto_import_history"
+        private const val MAX_AUTO_IMPORT_HISTORY = 80
+        private const val AUTO_IMPORT_WINDOW_MILLIS = 2 * 60 * 1000L
 
         @Volatile
         private var instance: LedgerStore? = null
