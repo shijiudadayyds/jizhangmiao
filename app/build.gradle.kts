@@ -50,10 +50,16 @@ android {
     namespace = "com.android.jizhangmiao"
     compileSdk = 36
     val buildTime = ZonedDateTime.now(ZoneId.of("Asia/Hong_Kong"))
-    val generatedVersionCode = buildTime.toEpochSecond().toInt()
+    val generatedVersionCode = providers.gradleProperty("appVersionCode")
+        .orNull
+        ?.toIntOrNull()
+        ?: buildTime.toEpochSecond().toInt()
     val generatedVersionName = buildTime.format(
-        DateTimeFormatter.ofPattern("'1.0.'yyyyMMdd'.'HHmmss")
+        DateTimeFormatter.ofPattern("'1.0.3.'yyyyMMddHHmm")
     )
+    val resolvedVersionName = providers.gradleProperty("appVersionName")
+        .orNull
+        ?: generatedVersionName
 
     val releaseSigning = signingConfigs.getByName("debug")
     val releaseCertSha256Obfuscated = xorObfuscateHex(
@@ -70,7 +76,7 @@ android {
         minSdk = 28
         targetSdk = 36
         versionCode = generatedVersionCode
-        versionName = generatedVersionName
+        versionName = resolvedVersionName
         resValue("bool", "security_checks_enabled", "false")
         resValue("string", "release_cert_sha256_obfuscated", "\"\"")
 

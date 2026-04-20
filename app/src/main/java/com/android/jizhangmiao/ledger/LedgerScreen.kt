@@ -3356,6 +3356,7 @@ private fun LedgerEntryCard(
     onDeleteClick: () -> Unit
 ) {
     val accentColor = if (entry.type == LedgerEntryType.INCOME) IncomeTint else ExpenseTint
+    var showDeleteConfirm by rememberSaveable(entry.id) { mutableStateOf(false) }
 
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -3461,7 +3462,9 @@ private fun LedgerEntryCard(
                             Text("\u7f16\u8f91")
                         }
                         TextButton(
-                            onClick = onDeleteClick,
+                            onClick = {
+                                showDeleteConfirm = true
+                            },
                             modifier = Modifier
                                 .border(
                                     width = 1.dp,
@@ -3475,6 +3478,41 @@ private fun LedgerEntryCard(
                 }
             }
         }
+    }
+
+    if (showDeleteConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {
+                showDeleteConfirm = false
+            },
+            title = {
+                Text("\u786e\u8ba4\u5220\u9664")
+            },
+            text = {
+                Text(
+                    "\u786e\u5b9a\u5220\u9664\u8fd9\u7b14${entry.category} ${formatSignedCurrency(entry)}\u5417\uff1f\u5220\u9664\u540e\u4e0d\u53ef\u6062\u590d\u3002"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDeleteClick()
+                    }
+                ) {
+                    Text("\u5220\u9664")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                    }
+                ) {
+                    Text("\u53d6\u6d88")
+                }
+            }
+        )
     }
 }
 
