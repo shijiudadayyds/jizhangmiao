@@ -20,7 +20,6 @@ import com.android.jizhangmiao.ledger.data.toAmountInput
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -34,7 +33,6 @@ class LedgerViewModel(
         val entries: List<LedgerEntry>,
         val templates: List<LedgerTemplate>,
         val budgetConfig: com.android.jizhangmiao.ledger.data.LedgerBudgetConfig,
-        val settings: com.android.jizhangmiao.ledger.data.LedgerAppSettings,
         val automationTrace: com.android.jizhangmiao.ledger.data.LedgerAutomationTrace
     )
 
@@ -49,15 +47,6 @@ class LedgerViewModel(
                 statusMessage.value = "\u5df2\u81ea\u52a8\u8865\u5165 $generatedCount \u7b14\u5230\u671f\u7684\u5468\u671f\u8d26\u5355"
             }
         }
-        viewModelScope.launch {
-            ledgerStore.settings.collect { settings ->
-                QuickEntryShortcutController.refresh(
-                    context = appContext,
-                    enabled = settings.quickEntryNotificationEnabled
-                )
-                QuickEntryWidgetProvider.updateAll(appContext)
-            }
-        }
     }
 
     val uiState: StateFlow<LedgerUiState> = combine(
@@ -65,14 +54,12 @@ class LedgerViewModel(
             ledgerStore.entries,
             ledgerStore.templates,
             ledgerStore.budgetConfig,
-            ledgerStore.settings,
             ledgerStore.automationTrace
-        ) { entries, templates, budgetConfig, settings, automationTrace ->
+        ) { entries, templates, budgetConfig, automationTrace ->
             UiSeed(
                 entries = entries,
                 templates = templates,
                 budgetConfig = budgetConfig,
-                settings = settings,
                 automationTrace = automationTrace
             )
         },
@@ -84,7 +71,6 @@ class LedgerViewModel(
             entries = seed.entries,
             templates = seed.templates,
             budgetConfig = seed.budgetConfig,
-            settings = seed.settings,
             automationTrace = seed.automationTrace,
             form = form,
             statusMessage = message,
@@ -169,17 +155,6 @@ class LedgerViewModel(
                 templateRecurrence = recurrence,
                 errorMessage = null
             )
-        }
-    }
-
-    fun updateQuickEntryNotificationEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            ledgerStore.updateQuickEntryNotificationEnabled(enabled)
-            statusMessage.value = if (enabled) {
-                "\u5df2\u6253\u5f00\u901a\u77e5\u680f\u5feb\u901f\u8bb0\u8d26"
-            } else {
-                "\u5df2\u5173\u95ed\u901a\u77e5\u680f\u5feb\u901f\u8bb0\u8d26"
-            }
         }
     }
 
@@ -428,28 +403,6 @@ class LedgerViewModel(
             }
             scanningState.value = false
         }
-    }
-
-    fun applyVoiceInput(text: String) {
-        val result = parseVoiceBookkeepingText(text)
-        if (result == null || result.amountInput == null) {
-            statusMessage.value = "\u8bed\u97f3\u91cc\u6ca1\u6709\u8bc6\u522b\u5230\u91d1\u989d\uff0c\u8bf7\u91cd\u8bd5"
-            return
-        }
-
-        formState.update { current ->
-            current.copy(
-                editingEntryId = null,
-                type = result.type ?: current.type,
-                amount = result.amountInput,
-                account = result.account ?: current.account.ifBlank { defaultLedgerAccount() },
-                category = result.category ?: current.category,
-                note = result.suggestedNote.take(80),
-                receiptText = result.rawText,
-                errorMessage = null
-            )
-        }
-        statusMessage.value = "\u5df2\u4ece\u8bed\u97f3\u586b\u5145\u8bb0\u8d26\u4fe1\u606f\uff0c\u786e\u8ba4\u540e\u53ef\u76f4\u63a5\u4fdd\u5b58"
     }
 
     fun dismissStatusMessage() {

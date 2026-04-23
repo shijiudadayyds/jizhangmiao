@@ -4,27 +4,20 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.android.jizhangmiao.ledger.LedgerScreen
-import com.android.jizhangmiao.ledger.LedgerLaunchRequest
 import com.android.jizhangmiao.ledger.LedgerViewModel
 import com.android.jizhangmiao.ledger.data.LedgerStore
-import com.android.jizhangmiao.ledger.parseLaunchRequest
 import com.android.jizhangmiao.ui.theme.JizhangmiaoTheme
 
 class MainActivity : ComponentActivity() {
     private val ledgerStore by lazy {
         LedgerStore.getInstance(applicationContext)
     }
-    private var launchRequest by mutableStateOf<LedgerLaunchRequest?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        launchRequest = parseLaunchRequest(intent)
         enableEdgeToEdge()
         val securityVerdict = AppSecurity.evaluate(applicationContext)
         if (!securityVerdict.isTrusted) {
@@ -65,21 +58,9 @@ class MainActivity : ComponentActivity() {
                     onExportBackup = viewModel::exportBackup,
                     onImportBackup = viewModel::importBackup,
                     onScanReceipt = viewModel::scanReceipt,
-                    onApplyVoiceInput = viewModel::applyVoiceInput,
-                    onQuickEntryNotificationEnabledChanged = viewModel::updateQuickEntryNotificationEnabled,
-                    launchRequest = launchRequest,
-                    onLaunchRequestConsumed = {
-                        launchRequest = null
-                    },
                     onDismissStatusMessage = viewModel::dismissStatusMessage
                 )
             }
         }
-    }
-
-    override fun onNewIntent(intent: android.content.Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        launchRequest = parseLaunchRequest(intent)
     }
 }

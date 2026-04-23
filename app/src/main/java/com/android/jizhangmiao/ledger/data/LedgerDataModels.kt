@@ -56,10 +56,6 @@ data class LedgerBudgetConfig(
     val categoryBudgets: Map<String, Long> = emptyMap()
 )
 
-data class LedgerAppSettings(
-    val quickEntryNotificationEnabled: Boolean = false
-)
-
 data class LedgerAutomationTrace(
     val sourceLabel: String = "",
     val summary: String = "",

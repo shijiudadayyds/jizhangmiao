@@ -80,27 +80,6 @@ internal fun parseReceiptText(text: String): ReceiptRecognitionResult? {
     )
 }
 
-internal fun parseVoiceBookkeepingText(text: String): ReceiptRecognitionResult? {
-    val cleanedText = text.replace('\n', ' ').trim()
-    if (cleanedText.isBlank()) {
-        return null
-    }
-
-    val baseResult = parseReceiptText(cleanedText) ?: return null
-    val type = when {
-        voiceIncomeKeywords.any(cleanedText::contains) -> LedgerEntryType.INCOME
-        voiceExpenseKeywords.any(cleanedText::contains) -> LedgerEntryType.EXPENSE
-        else -> baseResult.type ?: LedgerEntryType.EXPENSE
-    }
-
-    return baseResult.copy(
-        account = guessAccount(cleanedText),
-        category = guessCategory(cleanedText, type),
-        type = type,
-        suggestedNote = cleanedText
-    )
-}
-
 private fun guessType(text: String): LedgerEntryType? {
     return when {
         receiptIncomeKeywords.any { keyword -> text.contains(keyword) } -> LedgerEntryType.INCOME
@@ -143,21 +122,6 @@ private val receiptAmountPriorityKeywords = listOf(
     "\u652f\u4ed8",
     "\u5e94\u4ed8",
     "\u91d1\u989d"
-)
-private val voiceExpenseKeywords = listOf(
-    "\u652f\u51fa",
-    "\u82b1\u4e86",
-    "\u4ed8\u4e86",
-    "\u652f\u4ed8",
-    "\u6d88\u8d39"
-)
-private val voiceIncomeKeywords = listOf(
-    "\u6536\u5165",
-    "\u6536\u4e86",
-    "\u5165\u8d26",
-    "\u5230\u8d26",
-    "\u6536\u6b3e",
-    "\u9000\u6b3e"
 )
 private val accountKeywordMap = mapOf(
     "\u652f\u4ed8\u5b9d" to listOf("\u652f\u4ed8\u5b9d", "\u4f59\u989d\u5b9d"),

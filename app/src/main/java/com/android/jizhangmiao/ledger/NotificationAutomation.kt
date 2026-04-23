@@ -23,7 +23,6 @@ internal const val WeChatPackageName = "com.tencent.mm"
 internal const val AlipayPackageName = "com.eg.android.AlipayGphone"
 
 internal data class NotificationAutomationStatus(
-    val appNotificationsEnabled: Boolean,
     val notificationAccessEnabled: Boolean,
     val accessibilityAccessEnabled: Boolean,
     val isWeChatInstalled: Boolean,
@@ -95,9 +94,7 @@ private val amountPatterns = listOf(
 )
 
 internal fun queryNotificationAutomationStatus(context: Context): NotificationAutomationStatus {
-    val notificationManager = NotificationManagerCompat.from(context)
     return NotificationAutomationStatus(
-        appNotificationsEnabled = notificationManager.areNotificationsEnabled(),
         notificationAccessEnabled = NotificationManagerCompat
             .getEnabledListenerPackages(context)
             .contains(context.packageName),
@@ -152,34 +149,6 @@ internal fun openAccessibilityAutomationSettings(context: Context) {
 
     runCatching {
         context.startActivity(accessibilityIntent)
-    }.recoverCatching {
-        context.startActivity(
-            Intent(Settings.ACTION_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-        )
-    }.getOrElse { throwable ->
-        if (throwable !is ActivityNotFoundException) {
-            throw throwable
-        }
-    }
-}
-
-internal fun openAppNotificationSettings(context: Context) {
-    val detailIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-
-    runCatching {
-        context.startActivity(detailIntent)
-    }.recoverCatching {
-        context.startActivity(
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = android.net.Uri.fromParts("package", context.packageName, null)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-        )
     }.recoverCatching {
         context.startActivity(
             Intent(Settings.ACTION_SETTINGS).apply {

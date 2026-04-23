@@ -2,12 +2,7 @@
 
 package com.android.jizhangmiao.ledger
 
-import android.Manifest
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.net.Uri
-import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -61,8 +56,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -91,11 +84,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.android.jizhangmiao.ledger.data.LedgerAppSettings
 import com.android.jizhangmiao.ledger.data.LedgerAutomationTrace
 import com.android.jizhangmiao.ledger.data.LedgerBudgetConfig
 import com.android.jizhangmiao.ledger.data.LedgerEntry
@@ -151,10 +142,6 @@ fun LedgerScreen(
     onExportBackup: (Uri) -> Unit,
     onImportBackup: (Uri) -> Unit,
     onScanReceipt: (Uri) -> Unit,
-    onApplyVoiceInput: (String) -> Unit,
-    onQuickEntryNotificationEnabledChanged: (Boolean) -> Unit,
-    launchRequest: LedgerLaunchRequest?,
-    onLaunchRequestConsumed: () -> Unit,
     onDismissStatusMessage: () -> Unit
 ) {
     var periodFilterName by rememberSaveable { mutableStateOf(LedgerPeriodFilter.THIS_MONTH.name) }
@@ -180,7 +167,7 @@ fun LedgerScreen(
     }
     val boards = remember {
         listOf(
-            LedgerBoard.QUICK_ENTRY,
+            LedgerBoard.ENTRY,
             LedgerBoard.DASHBOARD,
             LedgerBoard.LEDGER,
             LedgerBoard.STATS,
@@ -278,7 +265,6 @@ fun LedgerScreen(
     ) { uri ->
         uri?.let(onExportBackup)
     }
-    val context = LocalContext.current
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -288,49 +274,6 @@ fun LedgerScreen(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let(onScanReceipt)
-    }
-    val voiceLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val spokenText = result.data
-            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            ?.firstOrNull()
-            ?.trim()
-            .orEmpty()
-        if (spokenText.isNotBlank()) {
-            onApplyVoiceInput(spokenText)
-        }
-    }
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            onQuickEntryNotificationEnabledChanged(true)
-        }
-    }
-    val launchVoiceRecognition: () -> Unit = {
-        runCatching {
-            voiceLauncher.launch(
-                Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.CHINA.toLanguageTag())
-                    putExtra(RecognizerIntent.EXTRA_PROMPT, "\u8bf4\u51fa\u4e00\u7b14\u8bb0\u8d26\uff0c\u4f8b\u5982\uff1a\u5fae\u4fe1\u652f\u51fa 18 \u5757\u9910\u996e")
-                }
-            )
-        }.getOrDefault(Unit)
-    }
-    val handleQuickEntryNotificationToggle: (Boolean) -> Unit = { enabled ->
-        val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
-
-        if (enabled && needsPermission) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            onQuickEntryNotificationEnabledChanged(enabled)
-        }
     }
     val openBoard: (LedgerBoard) -> Unit = { board ->
         val targetPage = boards.indexOf(board)
@@ -343,16 +286,6 @@ fun LedgerScreen(
 
     LaunchedEffect(pagerState.currentPage) {
         boardTabState.animateScrollToItem(pagerState.currentPage)
-    }
-
-    LaunchedEffect(launchRequest?.nonce) {
-        val request = launchRequest ?: return@LaunchedEffect
-        request.entryType?.let(onTypeSelected)
-        openBoard(request.board)
-        if (request.requestVoice) {
-            launchVoiceRecognition()
-        }
-        onLaunchRequestConsumed()
     }
 
     Box(
@@ -453,7 +386,7 @@ fun LedgerScreen(
                         pagerState = pagerState
                     ) {
                         when (boards[page]) {
-                            LedgerBoard.QUICK_ENTRY -> QuickEntryBoard(
+                            LedgerBoard.ENTRY -> EntryBoard(
                                 accountOptions = availableAccounts,
                                 categoryOptions = availableCategories,
                                 recentEntries = recentEntries,
@@ -473,7 +406,6 @@ fun LedgerScreen(
                                 onScanReceiptClick = {
                                     receiptLauncher.launch("image/*")
                                 },
-                                onVoiceInputClick = launchVoiceRecognition,
                                 onEditClick = onEditClick,
                                 onDeleteClick = onDeleteClick,
                                 onViewAllEntriesClick = {
@@ -494,8 +426,8 @@ fun LedgerScreen(
                                 topCategories = currentMonthTopCategories,
                                 accountSnapshots = accountSnapshots,
                                 totalRecordCount = uiState.entries.size,
-                                onOpenQuickEntryClick = {
-                                    openBoard(LedgerBoard.QUICK_ENTRY)
+                                onOpenEntryClick = {
+                                    openBoard(LedgerBoard.ENTRY)
                                 },
                                 onOpenLedgerClick = {
                                     openBoard(LedgerBoard.LEDGER)
@@ -548,7 +480,7 @@ fun LedgerScreen(
                                 },
                                 onEditClick = { entry ->
                                     onEditClick(entry)
-                                    openBoard(LedgerBoard.QUICK_ENTRY)
+                                    openBoard(LedgerBoard.ENTRY)
                                 },
                                 onDeleteClick = onDeleteClick
                             )
@@ -576,16 +508,13 @@ fun LedgerScreen(
                                 templates = uiState.templates,
                                 onApplyTemplateClick = { template ->
                                     onApplyTemplateClick(template)
-                                    openBoard(LedgerBoard.QUICK_ENTRY)
+                                    openBoard(LedgerBoard.ENTRY)
                                 },
                                 onDeleteTemplateClick = onDeleteTemplateClick
                             )
 
                             LedgerBoard.SETTINGS -> SettingsBoard(
-                                settings = uiState.settings,
                                 automationTrace = uiState.automationTrace,
-                                onQuickEntryNotificationEnabledChanged = handleQuickEntryNotificationToggle,
-                                onOpenVoiceInput = launchVoiceRecognition,
                                 onExportClick = {
                                     exportLauncher.launch("jizhangmiao-backup-${LocalDate.now()}.json")
                                 },
@@ -616,7 +545,7 @@ fun LedgerScreen(
                                 },
                                 onEditClick = { entry ->
                                     onEditClick(entry)
-                                    openBoard(LedgerBoard.QUICK_ENTRY)
+                                    openBoard(LedgerBoard.ENTRY)
                                 },
                                 onDeleteClick = onDeleteClick
                             )
@@ -629,7 +558,7 @@ fun LedgerScreen(
 }
 
 @Composable
-private fun QuickEntryBoard(
+private fun EntryBoard(
     accountOptions: List<String>,
     categoryOptions: List<String>,
     recentEntries: List<LedgerEntry>,
@@ -647,7 +576,6 @@ private fun QuickEntryBoard(
     onCancelEditClick: () -> Unit,
     onSaveTemplateClick: () -> Unit,
     onScanReceiptClick: () -> Unit,
-    onVoiceInputClick: () -> Unit,
     onEditClick: (LedgerEntry) -> Unit,
     onDeleteClick: (LedgerEntry) -> Unit,
     onViewAllEntriesClick: () -> Unit
@@ -674,7 +602,6 @@ private fun QuickEntryBoard(
                 onCancelEditClick = onCancelEditClick,
                 onSaveTemplateClick = onSaveTemplateClick,
                 onScanReceiptClick = onScanReceiptClick,
-                onVoiceInputClick = onVoiceInputClick,
                 isReceiptScanning = isReceiptScanning
             )
         }
@@ -688,7 +615,7 @@ private fun QuickEntryBoard(
                 SectionHeading(
                     title = "\u6700\u8fd1\u8d26\u5355",
                     subtitle = if (recentEntries.isEmpty()) {
-                        "\u8fd8\u6ca1\u6709\u8bb0\u5f55\uff0c\u53ef\u4ee5\u5148\u5728\u4e0a\u65b9\u5feb\u901f\u8bb0\u4e00\u7b14"
+                        "\u8fd8\u6ca1\u6709\u8bb0\u5f55\uff0c\u53ef\u4ee5\u5148\u5728\u4e0a\u65b9\u8bb0\u4e00\u7b14"
                     } else {
                         "\u6700\u8fd1 ${recentEntries.size} \u7b14\u8bb0\u5f55\uff0c\u53ef\u4ee5\u76f4\u63a5\u7f16\u8f91\u6216\u5220\u9664"
                     }
@@ -705,7 +632,7 @@ private fun QuickEntryBoard(
             item {
                 EmptyLedgerSection(
                     title = "\u9996\u9875\u8fd8\u6ca1\u6709\u7b14\u8bb0\u5f55",
-                    subtitle = "\u5148\u4ece\u5feb\u901f\u8bb0\u8d26\u5f00\u59cb\uff0c\u4e4b\u540e\u8fd9\u91cc\u4f1a\u51fa\u73b0\u6700\u65b0\u8d26\u5355"
+                    subtitle = "\u5148\u4ece\u624b\u52a8\u8bb0\u8d26\u5f00\u59cb\uff0c\u4e4b\u540e\u8fd9\u91cc\u4f1a\u51fa\u73b0\u6700\u65b0\u8d26\u5355"
                 )
             }
         } else {
@@ -731,7 +658,7 @@ private fun DashboardOverviewBoard(
     topCategories: List<CategorySpend>,
     accountSnapshots: List<AccountSnapshot>,
     totalRecordCount: Int,
-    onOpenQuickEntryClick: () -> Unit,
+    onOpenEntryClick: () -> Unit,
     onOpenLedgerClick: () -> Unit
 ) {
     LazyColumn(
@@ -755,11 +682,11 @@ private fun DashboardOverviewBoard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Button(
-                    onClick = onOpenQuickEntryClick,
+                    onClick = onOpenEntryClick,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(20.dp)
                 ) {
-                    Text("\u53bb\u5feb\u8bb0")
+                    Text("\u53bb\u8bb0\u8d26")
                 }
                 OutlinedButton(
                     onClick = onOpenLedgerClick,
@@ -1062,10 +989,7 @@ private fun BudgetBoard(
 
 @Composable
 private fun SettingsBoard(
-    settings: LedgerAppSettings,
     automationTrace: LedgerAutomationTrace,
-    onQuickEntryNotificationEnabledChanged: (Boolean) -> Unit,
-    onOpenVoiceInput: () -> Unit,
     onExportClick: () -> Unit,
     onImportClick: () -> Unit
 ) {
@@ -1086,24 +1010,12 @@ private fun SettingsBoard(
                 onOpenAccessibilityAccess = {
                     openAccessibilityAutomationSettings(context)
                 },
-                onOpenAppNotificationSettings = {
-                    openAppNotificationSettings(context)
-                },
                 onOpenWeChat = {
                     launchExternalPaymentApp(context, WeChatPackageName)
                 },
                 onOpenAlipay = {
                     launchExternalPaymentApp(context, AlipayPackageName)
                 }
-            )
-        }
-
-        item {
-            QuickShortcutSection(
-                settings = settings,
-                appNotificationsEnabled = automationStatus.appNotificationsEnabled,
-                onQuickEntryNotificationEnabledChanged = onQuickEntryNotificationEnabledChanged,
-                onOpenVoiceInput = onOpenVoiceInput
             )
         }
 
@@ -2389,7 +2301,6 @@ private fun EntryEditorSection(
     onCancelEditClick: () -> Unit,
     onSaveTemplateClick: () -> Unit,
     onScanReceiptClick: () -> Unit,
-    onVoiceInputClick: () -> Unit,
     isReceiptScanning: Boolean
 ) {
     val accentColor = if (form.type == LedgerEntryType.INCOME) IncomeTint else ExpenseTint
@@ -2433,14 +2344,14 @@ private fun EntryEditorSection(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = if (form.isEditing) "\u7f16\u8f91\u8bb0\u5f55" else "\u5feb\u901f\u8bb0\u8d26",
+                        text = if (form.isEditing) "\u7f16\u8f91\u8bb0\u5f55" else "\u8bb0\u4e00\u7b14",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
                         text = if (form.isEditing) {
                             "\u4fee\u6539\u91d1\u989d\u3001\u8d26\u6237\u3001\u5206\u7c7b"
                         } else {
-                            "\u9ed8\u8ba4\u5148\u663e\u793a\u5feb\u8bb0\uff0c\u8be6\u7ec6\u9879\u53ef\u4ee5\u5c55\u5f00"
+                            "\u5148\u586b\u91d1\u989d\u548c\u5206\u7c7b\uff0c\u8be6\u7ec6\u9879\u53ef\u4ee5\u5c55\u5f00"
                         },
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -2492,15 +2403,6 @@ private fun EntryEditorSection(
             }
 
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                item {
-                    FilterChip(
-                        selected = false,
-                        onClick = onVoiceInputClick,
-                        label = {
-                            Text("\u8bed\u97f3\u8bb0\u8d26")
-                        }
-                    )
-                }
                 item {
                     FilterChip(
                         selected = false,
@@ -2873,7 +2775,6 @@ private fun AutomationSection(
     status: NotificationAutomationStatus,
     onOpenNotificationAccess: () -> Unit,
     onOpenAccessibilityAccess: () -> Unit,
-    onOpenAppNotificationSettings: () -> Unit,
     onOpenWeChat: () -> Unit,
     onOpenAlipay: () -> Unit
 ) {
@@ -2893,13 +2794,6 @@ private fun AutomationSection(
             )
 
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                item {
-                    AutomationStatusPill(
-                        label = if (status.appNotificationsEnabled) "\u5e94\u7528\u901a\u77e5\u5df2\u5f00"
-                        else "\u5e94\u7528\u901a\u77e5\u672a\u5f00",
-                        active = status.appNotificationsEnabled
-                    )
-                }
                 item {
                     AutomationStatusPill(
                         label = if (status.notificationAccessEnabled) "\u901a\u77e5\u5df2\u5f00"
@@ -2935,16 +2829,12 @@ private fun AutomationSection(
                 shape = RoundedCornerShape(20.dp)
             ) {
                 Text(
-                    text = if (
-                        status.appNotificationsEnabled &&
-                        status.notificationAccessEnabled &&
-                        status.accessibilityAccessEnabled
-                    ) {
-                        "\u5f53\u524d\u5df2\u540c\u65f6\u6253\u5f00\u5e94\u7528\u901a\u77e5\u3001\u901a\u77e5\u8bbf\u95ee\u548c\u65e0\u969c\u788d\u8bfb\u5c4f\u3002\u80cc\u666f\u901a\u77e5\u3001\u652f\u4ed8\u7ed3\u679c\u9875\u3001\u6536\u6b3e\u9875\u90fd\u4f1a\u88ab\u5c1d\u8bd5\u8bc6\u522b\u3002"
-                    } else if (status.notificationAccessEnabled || status.accessibilityAccessEnabled || status.appNotificationsEnabled) {
-                        "\u81ea\u52a8\u8bb0\u8d26\u5df2\u5f00\u542f\u4e00\u90e8\u5206\u80fd\u529b\uff0c\u4f46\u8fd8\u6ca1\u5168\u90e8\u6253\u901a\u3002\u5efa\u8bae\u5c06\u5e94\u7528\u901a\u77e5\u3001\u901a\u77e5\u8bbf\u95ee\u548c\u65e0\u969c\u788d\u90fd\u6253\u5f00\uff0c\u8ba9\u901a\u77e5\u548c\u652f\u4ed8\u6210\u529f\u9875\u90fd\u80fd\u8fdb\u5165\u89e3\u6790\u3002"
+                    text = if (status.notificationAccessEnabled && status.accessibilityAccessEnabled) {
+                        "\u5f53\u524d\u5df2\u540c\u65f6\u6253\u5f00\u901a\u77e5\u8bbf\u95ee\u548c\u65e0\u969c\u788d\u8bfb\u5c4f\u3002\u80cc\u666f\u901a\u77e5\u3001\u652f\u4ed8\u7ed3\u679c\u9875\u3001\u6536\u6b3e\u9875\u90fd\u4f1a\u88ab\u5c1d\u8bd5\u8bc6\u522b\u3002"
+                    } else if (status.notificationAccessEnabled || status.accessibilityAccessEnabled) {
+                        "\u81ea\u52a8\u8bb0\u8d26\u5df2\u5f00\u542f\u4e00\u90e8\u5206\u80fd\u529b\uff0c\u4f46\u8fd8\u6ca1\u5168\u90e8\u6253\u901a\u3002\u5efa\u8bae\u5c06\u901a\u77e5\u8bbf\u95ee\u548c\u65e0\u969c\u788d\u90fd\u6253\u5f00\uff0c\u8ba9\u901a\u77e5\u548c\u652f\u4ed8\u6210\u529f\u9875\u90fd\u80fd\u8fdb\u5165\u89e3\u6790\u3002"
                     } else {
-                        "\u8981\u8ba9\u81ea\u52a8\u8bb0\u8d26\u751f\u6548\uff0c\u8bf7\u5148\u5728\u7cfb\u7edf\u8bbe\u7f6e\u91cc\u6253\u5f00\u5e94\u7528\u901a\u77e5\u3001\u901a\u77e5\u8bbf\u95ee\u548c\u65e0\u969c\u788d\u670d\u52a1\u3002\u8fd9\u6837\u4e0d\u9700\u8981\u5fae\u4fe1/\u652f\u4ed8\u5b9d\u79c1\u6709\u63a5\u53e3\u4e5f\u80fd\u62ff\u5230\u4ea4\u6613\u7ed3\u679c\u3002"
+                        "\u8981\u8ba9\u81ea\u52a8\u8bb0\u8d26\u751f\u6548\uff0c\u8bf7\u5148\u5728\u7cfb\u7edf\u8bbe\u7f6e\u91cc\u6253\u5f00\u901a\u77e5\u8bbf\u95ee\u548c\u65e0\u969c\u788d\u670d\u52a1\u3002\u8fd9\u6837\u4e0d\u9700\u8981\u5fae\u4fe1/\u652f\u4ed8\u5b9d\u79c1\u6709\u63a5\u53e3\u4e5f\u80fd\u62ff\u5230\u4ea4\u6613\u7ed3\u679c\u3002"
                     },
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
@@ -2965,13 +2855,6 @@ private fun AutomationSection(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = onOpenAppNotificationSettings,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(20.dp)
-                ) {
-                    Text(if (status.appNotificationsEnabled) "\u5e94\u7528\u901a\u77e5" else "\u6253\u5f00\u5e94\u7528\u901a\u77e5")
-                }
                 OutlinedButton(
                     onClick = onOpenNotificationAccess,
                     modifier = Modifier.weight(1f),
@@ -3048,124 +2931,6 @@ private fun AutomationStatusPill(
                 MaterialTheme.colorScheme.onSurfaceVariant
             }
         )
-    }
-}
-
-@Composable
-private fun QuickShortcutSection(
-    settings: LedgerAppSettings,
-    appNotificationsEnabled: Boolean,
-    onQuickEntryNotificationEnabledChanged: (Boolean) -> Unit,
-    onOpenVoiceInput: () -> Unit
-) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = SectionShape
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            SectionHeading(
-                title = "\u5feb\u6377\u5165\u53e3",
-                subtitle = "\u901a\u77e5\u680f\u5feb\u8bb0\u3001\u684c\u9762 2x2 \u5c0f\u63d2\u4ef6\u548c\u8bed\u97f3\u8bb0\u8d26\u90fd\u5728\u8fd9\u91cc"
-            )
-
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(22.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = "\u901a\u77e5\u680f\u5feb\u901f\u8bb0\u8d26",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            text = if (appNotificationsEnabled) {
-                                "\u6253\u5f00\u540e\u4f1a\u5728\u901a\u77e5\u680f\u5e38\u9a7b\u201c\u5feb\u8bb0 / \u652f\u51fa / \u8bed\u97f3\u201d\u5165\u53e3"
-                            } else {
-                                "\u9700\u8981\u5148\u6253\u5f00 App \u901a\u77e5\uff0c\u5426\u5219\u901a\u77e5\u680f\u5feb\u6377\u5165\u53e3\u4e0d\u4f1a\u663e\u793a"
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = settings.quickEntryNotificationEnabled,
-                        onCheckedChange = onQuickEntryNotificationEnabledChanged,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.primary,
-                            checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)
-                        )
-                    )
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-                    shape = RoundedCornerShape(22.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = "\u684c\u9762 2x2 \u5c0f\u63d2\u4ef6",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            text = "\u5df2\u52a0\u5165\u5c0f\u63d2\u4ef6\uff0c\u5728\u684c\u9762\u957f\u6309\u6216\u201c\u6dfb\u52a0\u5c0f\u90e8\u4ef6\u201d\u91cc\u627e\u201c\u8bb0\u8d26\u55b5\u5feb\u8bb0\u201d\u5373\u53ef\u653e\u7f6e",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f),
-                    shape = RoundedCornerShape(22.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = "\u8bed\u97f3\u8bb0\u8d26",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            text = "\u4f8b\u5982\uff1a\u201c\u652f\u4ed8\u5b9d\u652f\u51fa 18 \u9910\u996e\u201d\u3001\u201c\u5fae\u4fe1\u6536\u5165 200 \u7ea2\u5305\u201d",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        OutlinedButton(
-                            onClick = onOpenVoiceInput,
-                            shape = RoundedCornerShape(18.dp)
-                        ) {
-                            Text("\u7acb\u5373\u8bd5\u8bed\u97f3")
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -3545,7 +3310,7 @@ private data class ChartFocus(
 )
 
 enum class LedgerBoard {
-    QUICK_ENTRY,
+    ENTRY,
     DASHBOARD,
     STATS,
     BUDGET,
@@ -3560,7 +3325,7 @@ private enum class LedgerTrendGranularity {
 
 private fun LedgerBoard.displayName(): String {
     return when (this) {
-        LedgerBoard.QUICK_ENTRY -> "\u5feb\u8bb0"
+        LedgerBoard.ENTRY -> "\u8bb0\u8d26"
         LedgerBoard.DASHBOARD -> "\u4eea\u8868\u76d8"
         LedgerBoard.STATS -> "\u5206\u6790"
         LedgerBoard.BUDGET -> "\u89c4\u5212"
@@ -3571,11 +3336,11 @@ private fun LedgerBoard.displayName(): String {
 
 private fun LedgerBoard.subtitle(): String {
     return when (this) {
-        LedgerBoard.QUICK_ENTRY -> "\u5feb\u901f\u8bb0\u8d26\u548c\u6700\u8fd1\u8d26\u5355"
+        LedgerBoard.ENTRY -> "\u65b0\u589e\u8bb0\u5f55\u548c\u6700\u8fd1\u8d26\u5355"
         LedgerBoard.DASHBOARD -> "\u4f59\u989d\u603b\u89c8\u3001\u8d26\u6237\u770b\u677f\u548c\u6838\u5fc3\u6307\u6807"
         LedgerBoard.STATS -> "\u6536\u652f\u56fe\u8868\u3001\u8d8b\u52bf\u548c\u5206\u7c7b\u660e\u7ec6"
-        LedgerBoard.BUDGET -> "\u9884\u7b97\u3001\u5feb\u6377\u6a21\u677f\u548c\u5468\u671f\u6a21\u677f\u90fd\u5728\u8fd9\u91cc"
-        LedgerBoard.SETTINGS -> "\u81ea\u52a8\u8bb0\u8d26\u3001\u5feb\u6377\u5165\u53e3\u3001\u5907\u4efd\u548c\u8fc1\u79fb"
+        LedgerBoard.BUDGET -> "\u9884\u7b97\u3001\u5e38\u7528\u6a21\u677f\u548c\u5468\u671f\u6a21\u677f\u90fd\u5728\u8fd9\u91cc"
+        LedgerBoard.SETTINGS -> "\u81ea\u52a8\u8bb0\u8d26\u3001\u5907\u4efd\u548c\u8fc1\u79fb"
         LedgerBoard.LEDGER -> "\u7b5b\u9009\u5e76\u7ba1\u7406\u5168\u90e8\u8d26\u76ee"
     }
 }

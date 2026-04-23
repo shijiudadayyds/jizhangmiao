@@ -2,10 +2,4 @@
     <string name="app_name">&#x8BB0;&#x8D26;&#x55B5;</string>
     <string name="accessibility_service_label">&#x8BB0;&#x8D26;&#x55B5;&#x81EA;&#x52A8;&#x8BB0;&#x8D26;</string>
     <string name="accessibility_service_description">&#x8BFB;&#x53D6;&#x5FAE;&#x4FE1;&#x548C;&#x652F;&#x4ED8;&#x5B9D;&#x652F;&#x4ED8;&#x6210;&#x529F;&#x3001;&#x6536;&#x6B3E;&#x6210;&#x529F;&#x7B49;&#x9875;&#x9762;&#x4FE1;&#x606F;&#xFF0C;&#x7528;&#x4E8E;&#x81EA;&#x52A8;&#x751F;&#x6210;&#x8BB0;&#x8D26;&#x8BB0;&#x5F55;</string>
-    <string name="widget_label">&#x8BB0;&#x8D26;&#x55B5;&#x5FEB;&#x8BB0;</string>
-    <string name="widget_subtitle">&#x684C;&#x9762; 2x2 &#x5FEB;&#x901F;&#x8BB0;&#x8D26;</string>
-    <string name="widget_open_app">&#x6253;&#x5F00;</string>
-    <string name="widget_expense">&#x652F;&#x51FA;</string>
-    <string name="widget_income">&#x6536;&#x5165;</string>
-    <string name="widget_voice">&#x8BED;&#x97F3;</string>
 </resources>
