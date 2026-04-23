@@ -1,4 +1,11 @@
 {
   "java.import.gradle.java.home": "C:\\Users\\shijiu\\scoop\\apps\\microsoft21-jdk\\21.0.10",
-  "java.jdt.ls.java.home": "C:\\Users\\shijiu\\scoop\\apps\\microsoft21-jdk\\21.0.10"
+  "java.jdt.ls.java.home": "C:\\Users\\shijiu\\scoop\\apps\\microsoft21-jdk\\21.0.10",
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-21",
+      "path": "C:\\Users\\shijiu\\scoop\\apps\\microsoft21-jdk\\21.0.10",
+      "default": true
+    }
+  ]
 }
