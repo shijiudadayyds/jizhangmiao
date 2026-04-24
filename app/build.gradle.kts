@@ -146,4 +146,5 @@ dependencies {
     implementation(libs.mlkit.text.recognition.chinese)
 
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
 }
