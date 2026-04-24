@@ -9,7 +9,6 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import android.service.notification.StatusBarNotification
-import android.text.TextUtils
 import android.view.accessibility.AccessibilityManager
 import androidx.core.app.NotificationManagerCompat
 import com.android.jizhangmiao.ledger.data.LedgerEntryType
@@ -360,9 +359,13 @@ private fun sourceNameFor(packageName: String): String {
 internal fun normalizeCollectedText(rawTexts: Iterable<String>): String {
     return rawTexts
         .map { text -> text.replace(Regex("""\s+"""), " ").trim() }
-        .filter { text -> text.isNotBlank() && !TextUtils.isDigitsOnly(text) }
+        .filter { text -> text.isNotBlank() && !isDigitsOnly(text) }
         .distinct()
         .joinToString("\n")
+}
+
+private fun isDigitsOnly(text: CharSequence): Boolean {
+    return text.isNotEmpty() && text.all(Char::isDigit)
 }
 
 private fun normalizeForMatching(content: String): String {
@@ -409,12 +412,24 @@ private fun extractAmountInCents(content: String): Long? {
         .map(String::trim)
         .filter(String::isNotBlank)
         .toList()
-    val prioritizedLines = lines.filter { line ->
-        val normalizedLine = normalizeForMatching(line)
+    val prioritizedLineIndexes = lines.indices.filter { index ->
+        val normalizedLine = normalizeForMatching(lines[index])
         transactionKeywords.any(normalizedLine::contains)
     }
 
-    return (prioritizedLines + lines)
+    val contextualAmounts = prioritizedLineIndexes
+        .flatMap { index -> listOf(index, index + 1, index - 1) }
+        .distinct()
+        .filter { index -> index in lines.indices }
+        .asSequence()
+        .flatMap { index -> extractAmountsFromLine(lines[index]).asSequence() }
+        .toList()
+
+    if (contextualAmounts.isNotEmpty()) {
+        return contextualAmounts.first()
+    }
+
+    return lines
         .asSequence()
         .flatMap { line -> extractAmountsFromLine(line).asSequence() }
         .firstOrNull()
