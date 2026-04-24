@@ -9,6 +9,7 @@ import java.time.format.DateTimeFormatter
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.google.devtools.ksp)
 }
 
 fun certificateSha256Hex(
@@ -110,6 +111,10 @@ android {
         resValues = true
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     androidResources {
         localeFilters += listOf("en", "zh-rCN", "zh-rHK", "zh-rTW")
     }
@@ -139,12 +144,17 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.material3)
     implementation(libs.mlkit.text.recognition.chinese)
+    ksp(libs.androidx.room.compiler)
 
     testImplementation(libs.junit)
+    testImplementation(libs.androidx.core)
+    testImplementation(libs.robolectric)
     testImplementation("org.json:json:20240303")
 }

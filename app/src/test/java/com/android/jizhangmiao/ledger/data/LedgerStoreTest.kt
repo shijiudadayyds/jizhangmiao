@@ -1,26 +1,31 @@
 package com.android.jizhangmiao.ledger.data
 
+import android.content.Context
 import android.content.SharedPreferences
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
 import com.android.jizhangmiao.ledger.AutoImportedEntry
-import java.lang.reflect.Constructor
+import com.android.jizhangmiao.ledger.data.room.LedgerDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class LedgerStoreTest {
     @Test
-    fun importAutoEntry_addsPendingImport_and_blocksDuplicateSignature() = runBlocking {
-        val store = createLedgerStore()
+    fun importAutoEntry_addsPendingImport_and_blocksDuplicateSignature() = withStore { store ->
         val imported = AutoImportedEntry(
             signature = "sig-1",
             type = LedgerEntryType.EXPENSE,
             amountInCents = 1_880L,
-            account = "微信",
-            category = "日用",
-            note = "自动记账：微信支付 / 通知",
-            receiptText = "支付成功\n￥18.80",
+            account = "wechat",
+            category = "daily",
+            note = "auto import: wechat notice",
+            receiptText = "paid 18.80",
             happenedAt = 1_710_000_000_000L
         )
 
@@ -31,20 +36,19 @@ class LedgerStoreTest {
         assertFalse(secondImported)
         assertEquals(1, store.pendingImports.value.size)
         assertEquals("sig-1", store.pendingImports.value.first().signature)
-        assertEquals("自动记账：微信支付 / 通知", store.pendingImports.value.first().sourceLabel)
+        assertEquals("auto import: wechat notice", store.pendingImports.value.first().sourceLabel)
     }
 
     @Test
-    fun approvePendingImport_movesCandidateIntoEntries() = runBlocking {
-        val store = createLedgerStore()
+    fun approvePendingImport_movesCandidateIntoEntries() = withStore { store ->
         val imported = AutoImportedEntry(
             signature = "sig-approve",
             type = LedgerEntryType.INCOME,
             amountInCents = 2_500L,
-            account = "支付宝",
-            category = "退款",
-            note = "自动记账：支付宝 / 通知",
-            receiptText = "退款到账\n￥25.00",
+            account = "alipay",
+            category = "refund",
+            note = "auto import: alipay notice",
+            receiptText = "refund 25.00",
             happenedAt = 1_710_000_100_000L
         )
 
@@ -57,19 +61,18 @@ class LedgerStoreTest {
         assertEquals(1, store.entries.value.size)
         assertEquals(LedgerEntryType.INCOME, store.entries.value.first().type)
         assertEquals(2_500L, store.entries.value.first().amountInCents)
-        assertEquals("退款", store.entries.value.first().category)
+        assertEquals("refund", store.entries.value.first().category)
     }
 
     @Test
-    fun importBackupJson_merge_combinesEntriesTemplatesBudgetsAndProfile() = runBlocking {
-        val existingStore = createLedgerStore()
+    fun importBackupJson_merge_combinesEntriesTemplatesBudgetsAndProfile() = withStore { existingStore ->
         existingStore.addEntry(
             LedgerEntry(
                 id = "existing-entry",
                 type = LedgerEntryType.EXPENSE,
                 amountInCents = 1_880L,
-                account = "微信",
-                category = "日用",
+                account = "wechat",
+                category = "daily",
                 happenedAt = 1_710_000_000_000L,
                 updatedAt = 1_710_000_000_000L
             )
@@ -77,81 +80,80 @@ class LedgerStoreTest {
         existingStore.upsertTemplate(
             LedgerTemplate(
                 id = "existing-template",
-                title = "早餐",
+                title = "breakfast",
                 type = LedgerEntryType.EXPENSE,
                 amountInCents = 1_200L,
-                account = "微信",
-                category = "餐饮",
-                note = "工作日早餐"
+                account = "wechat",
+                category = "food",
+                note = "weekday breakfast"
             )
         )
         existingStore.updateMonthlyBudget(300_000L)
-        existingStore.updateCategoryBudget("餐饮", 80_000L)
-        existingStore.addAccount("银行卡")
-        existingStore.addCategory(LedgerEntryType.EXPENSE, "出行")
+        existingStore.updateCategoryBudget("food", 80_000L)
+        existingStore.addAccount("bank")
+        existingStore.addCategory(LedgerEntryType.EXPENSE, "travel")
 
-        val importedStore = createLedgerStore()
-        importedStore.addEntry(
-            LedgerEntry(
-                id = "import-duplicate",
-                type = LedgerEntryType.EXPENSE,
-                amountInCents = 1_880L,
-                account = "微信",
-                category = "日用",
-                happenedAt = 1_710_000_000_000L,
-                updatedAt = 1_710_000_000_000L
+        withStore { importedStore ->
+            importedStore.addEntry(
+                LedgerEntry(
+                    id = "import-duplicate",
+                    type = LedgerEntryType.EXPENSE,
+                    amountInCents = 1_880L,
+                    account = "wechat",
+                    category = "daily",
+                    happenedAt = 1_710_000_000_000L,
+                    updatedAt = 1_710_000_000_000L
+                )
             )
-        )
-        importedStore.addEntry(
-            LedgerEntry(
-                id = "import-new",
-                type = LedgerEntryType.INCOME,
-                amountInCents = 8_888L,
-                account = "支付宝",
-                category = "红包",
-                happenedAt = 1_710_000_200_000L,
-                updatedAt = 1_710_000_200_000L
+            importedStore.addEntry(
+                LedgerEntry(
+                    id = "import-new",
+                    type = LedgerEntryType.INCOME,
+                    amountInCents = 8_888L,
+                    account = "alipay",
+                    category = "bonus",
+                    happenedAt = 1_710_000_200_000L,
+                    updatedAt = 1_710_000_200_000L
+                )
             )
-        )
-        importedStore.upsertTemplate(
-            LedgerTemplate(
-                id = "import-template",
-                title = "房租",
-                type = LedgerEntryType.EXPENSE,
-                amountInCents = 3_500_00L,
-                account = "银行卡",
-                category = "住房",
-                recurrence = LedgerTemplateRecurrence.MONTHLY,
-                nextDueAt = 1_710_100_000_000L
+            importedStore.upsertTemplate(
+                LedgerTemplate(
+                    id = "import-template",
+                    title = "rent",
+                    type = LedgerEntryType.EXPENSE,
+                    amountInCents = 350_000L,
+                    account = "bank",
+                    category = "housing",
+                    recurrence = LedgerTemplateRecurrence.MONTHLY,
+                    nextDueAt = 1_710_100_000_000L
+                )
             )
-        )
-        importedStore.updateMonthlyBudget(500_000L)
-        importedStore.updateCategoryBudget("住房", 350_000L)
-        importedStore.addAccount("现金")
-        importedStore.addCategory(LedgerEntryType.INCOME, "副业")
+            importedStore.updateMonthlyBudget(500_000L)
+            importedStore.updateCategoryBudget("housing", 350_000L)
+            importedStore.addAccount("cash")
+            importedStore.addCategory(LedgerEntryType.INCOME, "sidejob")
 
-        val merged = existingStore.importBackupJson(
-            importedStore.exportBackupJson(),
-            LedgerImportMode.MERGE
-        )
+            val merged = existingStore.importBackupJson(
+                importedStore.exportBackupJson(),
+                LedgerImportMode.MERGE
+            )
 
-        assertTrue(merged)
-        assertEquals(2, existingStore.entries.value.size)
-        assertTrue(existingStore.entries.value.any { entry -> entry.id == "existing-entry" })
-        assertTrue(existingStore.entries.value.any { entry -> entry.id == "import-new" })
-        assertEquals(2, existingStore.templates.value.size)
-        assertEquals(500_000L, existingStore.budgetConfig.value.monthlyBudgetInCents)
-        assertEquals(80_000L, existingStore.budgetConfig.value.categoryBudgets["餐饮"])
-        assertEquals(350_000L, existingStore.budgetConfig.value.categoryBudgets["住房"])
-        assertTrue(existingStore.profileConfig.value.customAccounts.containsAll(listOf("银行卡", "现金")))
-        assertTrue(existingStore.profileConfig.value.customExpenseCategories.contains("出行"))
-        assertTrue(existingStore.profileConfig.value.customIncomeCategories.contains("副业"))
+            assertTrue(merged)
+            assertEquals(2, existingStore.entries.value.size)
+            assertTrue(existingStore.entries.value.any { entry -> entry.id == "existing-entry" })
+            assertTrue(existingStore.entries.value.any { entry -> entry.id == "import-new" })
+            assertEquals(2, existingStore.templates.value.size)
+            assertEquals(500_000L, existingStore.budgetConfig.value.monthlyBudgetInCents)
+            assertEquals(80_000L, existingStore.budgetConfig.value.categoryBudgets["food"])
+            assertEquals(350_000L, existingStore.budgetConfig.value.categoryBudgets["housing"])
+            assertTrue(existingStore.profileConfig.value.customAccounts.containsAll(listOf("bank", "cash")))
+            assertTrue(existingStore.profileConfig.value.customExpenseCategories.contains("travel"))
+            assertTrue(existingStore.profileConfig.value.customIncomeCategories.contains("sidejob"))
+        }
     }
 
     @Test
-    fun importBackupJson_returnsFalse_whenJsonIsInvalid() = runBlocking {
-        val store = createLedgerStore()
-
+    fun importBackupJson_returnsFalse_whenJsonIsInvalid() = withStore { store ->
         val imported = store.importBackupJson("{not-valid-json}", LedgerImportMode.MERGE)
 
         assertFalse(imported)
@@ -159,10 +161,78 @@ class LedgerStoreTest {
         assertTrue(store.templates.value.isEmpty())
     }
 
-    private fun createLedgerStore(
-        preferences: SharedPreferences = FakeSharedPreferences()
-    ): LedgerStore {
-        return ledgerStoreConstructor.newInstance(preferences)
+    @Test
+    fun init_migratesLegacyPreferencesIntoRoom() = withStore(
+        legacyPreferences = FakeSharedPreferences().apply {
+            edit()
+                .putString(
+                    "entries",
+                    LedgerJsonCodec.encodeEntries(
+                        listOf(
+                            LedgerEntry(
+                                id = "legacy-entry",
+                                type = LedgerEntryType.EXPENSE,
+                                amountInCents = 4_200L,
+                                account = "wechat",
+                                category = "groceries",
+                                happenedAt = 1_710_100_000_000L,
+                                updatedAt = 1_710_100_000_000L
+                            )
+                        )
+                    ).toString()
+                )
+                .putString(
+                    "budget_config",
+                    LedgerJsonCodec.encodeBudgetConfig(
+                        LedgerBudgetConfig(
+                            monthlyBudgetInCents = 200_000L,
+                            categoryBudgets = sortedMapOf("groceries" to 50_000L)
+                        )
+                    ).toString()
+                )
+                .putString(
+                    "profile_config",
+                    LedgerJsonCodec.encodeProfileConfig(
+                        LedgerProfileConfig(customAccounts = listOf("bank"))
+                    ).toString()
+                )
+                .putString(
+                    "security_config",
+                    LedgerJsonCodec.encodeSecurityConfig(
+                        LedgerSecurityConfig(pinHash = "hash", pinSalt = "salt")
+                    ).toString()
+                )
+                .apply()
+        }
+    ) { store ->
+        assertEquals(1, store.entries.value.size)
+        assertEquals("legacy-entry", store.entries.value.first().id)
+        assertEquals(200_000L, store.budgetConfig.value.monthlyBudgetInCents)
+        assertEquals(50_000L, store.budgetConfig.value.categoryBudgets["groceries"])
+        assertTrue(store.profileConfig.value.customAccounts.contains("bank"))
+        assertTrue(store.securityConfig.value.isPinEnabled)
+    }
+
+    private fun withStore(
+        legacyPreferences: SharedPreferences? = null,
+        block: suspend (LedgerStore) -> Unit
+    ) = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(
+            context,
+            LedgerDatabase::class.java
+        ).allowMainThreadQueries().build()
+
+        try {
+            val store = LedgerStore(database, legacyPreferences)
+            try {
+                block(store)
+            } finally {
+                store.close()
+            }
+        } finally {
+            database.close()
+        }
     }
 
     private class FakeSharedPreferences : SharedPreferences {
@@ -314,12 +384,5 @@ class LedgerStoreTest {
                 commit()
             }
         }
-    }
-
-    companion object {
-        private val ledgerStoreConstructor: Constructor<LedgerStore> =
-            LedgerStore::class.java.getDeclaredConstructor(SharedPreferences::class.java).apply {
-                isAccessible = true
-            }
     }
 }

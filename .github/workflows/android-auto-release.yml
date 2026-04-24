@@ -1,0 +1,107 @@
+name: Android Auto Release
+
+on:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-auto-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Hong_Kong
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: 准备发布元数据
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::7}"
+          BUILD_TIME="$(TZ=Asia/Hong_Kong date +'%Y%m%d%H%M')"
+          SAFE_BRANCH="$(echo "${GITHUB_REF_NAME}" | sed 's#[^A-Za-z0-9._-]#-#g')"
+          TAG="auto-${SAFE_BRANCH}-${BUILD_TIME}-${SHORT_SHA}"
+          VERSION_NAME="ci.${BUILD_TIME}.${SHORT_SHA}"
+          VERSION_CODE="$(date +%s)"
+
+          {
+            echo "tag=${TAG}"
+            echo "version_name=${VERSION_NAME}"
+            echo "version_code=${VERSION_CODE}"
+            echo "safe_branch=${SAFE_BRANCH}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: 授予 Gradle 执行权限
+        run: chmod +x ./gradlew
+
+      - name: 构建调试包与发布包
+        run: |
+          ./gradlew \
+            :app:testDebugUnitTest \
+            :app:assembleDebug \
+            :app:assembleRelease \
+            -PappVersionName="${{ steps.meta.outputs.version_name }}" \
+            -PappVersionCode="${{ steps.meta.outputs.version_code }}"
+
+      - name: 整理发布产物
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/*.apk dist/
+          cp app/build/outputs/apk/release/*.apk dist/
+          cp app/build/outputs/mapping/release/mapping.txt dist/
+          cat > dist/RELEASE_NOTES.md <<EOF
+          自动构建发布
+
+          分支：${GITHUB_REF_NAME}
+          提交：${GITHUB_SHA}
+          版本名：${{ steps.meta.outputs.version_name }}
+          版本号：${{ steps.meta.outputs.version_code }}
+          工作流运行：https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+
+      - name: 上传工作流产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: jizhangmiao-${{ steps.meta.outputs.tag }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 发布 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            "dist/app-arm64-v8a-release.apk#app-arm64-v8a-release.apk" \
+            "dist/app-armeabi-v7a-release.apk#app-armeabi-v7a-release.apk" \
+            "dist/app-universal-release.apk#app-universal-release.apk" \
+            "dist/mapping.txt#mapping.txt" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "自动构建 ${{ steps.meta.outputs.version_name }}" \
+            --notes-file dist/RELEASE_NOTES.md \
+            --prerelease \
+            --latest=false

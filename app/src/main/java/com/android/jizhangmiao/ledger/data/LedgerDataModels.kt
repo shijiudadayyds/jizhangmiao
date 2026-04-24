@@ -201,3 +201,26 @@ fun syncRecurringTemplates(
         generatedCount = generatedEntries.size
     )
 }
+
+fun normalizeEntries(entries: List<LedgerEntry>): List<LedgerEntry> {
+    return entries.sortedWith(
+        compareByDescending<LedgerEntry> { it.happenedAt }
+            .thenByDescending { it.updatedAt }
+            .thenByDescending { it.id }
+    )
+}
+
+fun normalizeTemplates(templates: List<LedgerTemplate>): List<LedgerTemplate> {
+    return templates.sortedWith(
+        compareByDescending<LedgerTemplate> { it.createdAt }
+            .thenByDescending { it.id }
+    )
+}
+
+fun normalizePendingImports(pendingImports: List<PendingLedgerImport>): List<PendingLedgerImport> {
+    return pendingImports.sortedWith(
+        compareByDescending<PendingLedgerImport> { it.createdAt }
+            .thenByDescending { it.happenedAt }
+            .thenByDescending { it.id }
+    )
+}
