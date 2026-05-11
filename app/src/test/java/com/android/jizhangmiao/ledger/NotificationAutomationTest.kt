@@ -57,6 +57,52 @@ class NotificationAutomationTest {
     }
 
     @Test
+    fun parseAutoImportedEntry_detectsAmountSplitAcrossCurrencyAndNumberLines() {
+        val entry = parseAutoImportedEntry(
+            packageName = WeChatPackageName,
+            mergedText = """
+                服务提醒 ¥0.01
+                支付成功
+                ¥
+                18.80
+                便利店
+            """.trimIndent(),
+            dedupeSeed = "split-currency",
+            happenedAt = 1_710_000_200_000L,
+            sourceLabel = "页面识别"
+        )
+
+        assertNotNull(entry)
+        assertEquals(LedgerEntryType.EXPENSE, entry?.type)
+        assertEquals(1_880L, entry?.amountInCents)
+        assertEquals("日用", entry?.category)
+    }
+
+    @Test
+    fun parseAutoImportedEntry_detectsAlipayTransactionSuccessPage() {
+        val entry = parseAutoImportedEntry(
+            packageName = AlipayPackageName,
+            mergedText = """
+                交易成功
+                付款方式
+                余额
+                ￥
+                25.90
+                商家
+                星巴克
+            """.trimIndent(),
+            dedupeSeed = "alipay-success-page",
+            happenedAt = 1_710_000_300_000L,
+            sourceLabel = "页面识别"
+        )
+
+        assertNotNull(entry)
+        assertEquals(LedgerEntryType.EXPENSE, entry?.type)
+        assertEquals(2_590L, entry?.amountInCents)
+        assertEquals("支付宝", entry?.account)
+    }
+
+    @Test
     fun analyzeAutoImportedEntry_ignoresUnsupportedPackage() {
         val analysis = analyzeAutoImportedEntry(
             packageName = "com.example.other",

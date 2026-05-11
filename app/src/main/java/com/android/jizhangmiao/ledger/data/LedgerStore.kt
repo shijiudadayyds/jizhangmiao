@@ -148,6 +148,12 @@ class LedgerStore internal constructor(
                     return@withWriteTransaction false
                 }
 
+                val hasLikelyPendingDuplicate = pendingImports.any { pendingImport ->
+                    pendingImport.type == resolvedEntry.type &&
+                        pendingImport.amountInCents == resolvedEntry.amountInCents &&
+                        pendingImport.account == resolvedEntry.account &&
+                        pendingImport.happenedAt in (resolvedEntry.happenedAt - AUTO_IMPORT_WINDOW_MILLIS)..(resolvedEntry.happenedAt + AUTO_IMPORT_WINDOW_MILLIS)
+                }
                 val hasLikelyDuplicate = dao.getEntries()
                     .asSequence()
                     .map { entity -> entity.toModel() }
@@ -171,7 +177,7 @@ class LedgerStore internal constructor(
                     }
                 }
 
-                if (hasLikelyDuplicate) {
+                if (hasLikelyPendingDuplicate || hasLikelyDuplicate) {
                     return@withWriteTransaction false
                 }
 

@@ -3,7 +3,9 @@
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeWindowsChanged|typeNotificationStateChanged|typeViewScrolled|typeViewClicked"
     android:accessibilityFeedbackType="feedbackAllMask"
     android:accessibilityFlags="flagIncludeNotImportantViews|flagRetrieveInteractiveWindows|flagReportViewIds"
+    android:canTakeScreenshot="true"
     android:canRetrieveWindowContent="true"
     android:description="@string/accessibility_service_description"
+    android:isAccessibilityTool="true"
     android:notificationTimeout="150"
     android:packageNames="com.tencent.mm,com.eg.android.AlipayGphone" />

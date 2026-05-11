@@ -40,6 +40,30 @@ class LedgerStoreTest {
     }
 
     @Test
+    fun importAutoEntry_blocksLikelyDuplicatePendingImport_evenWhenSignatureChanges() = withStore { store ->
+        val first = AutoImportedEntry(
+            signature = "sig-a11y-text",
+            type = LedgerEntryType.EXPENSE,
+            amountInCents = 1_880L,
+            account = "wechat",
+            category = "daily",
+            note = "auto import: accessibility text",
+            receiptText = "paid 18.80",
+            happenedAt = 1_710_000_000_000L
+        )
+        val second = first.copy(
+            signature = "sig-a11y-ocr",
+            receiptText = "payment success paid 18.80",
+            happenedAt = 1_710_000_030_000L
+        )
+
+        assertTrue(store.importAutoEntry(first))
+        assertFalse(store.importAutoEntry(second))
+        assertEquals(1, store.pendingImports.value.size)
+        assertEquals("sig-a11y-text", store.pendingImports.value.first().signature)
+    }
+
+    @Test
     fun importAutoEntry_appliesAutomationRule_beforeDuplicateCheck() = withStore { store ->
         store.addEntry(
             LedgerEntry(

@@ -17,6 +17,7 @@ import com.android.jizhangmiao.ledger.data.toAmountInCents
 import com.android.jizhangmiao.ledger.data.toAmountInput
 import java.security.MessageDigest
 import java.util.Locale
+import kotlin.math.abs
 
 internal const val WeChatPackageName = "com.tencent.mm"
 internal const val AlipayPackageName = "com.eg.android.AlipayGphone"
@@ -45,16 +46,29 @@ internal data class AutoImportedEntry(
     val happenedAt: Long
 )
 
+private data class AmountCandidate(
+    val amountInCents: Long,
+    val score: Int
+)
+
 private val incomeKeywords = listOf(
     "\u6536\u6b3e\u6210\u529f",
     "\u6210\u529f\u6536\u6b3e",
     "\u6536\u6b3e\u5230\u8d26",
+    "\u6536\u94b1\u5230\u8d26",
+    "\u5df2\u6536\u94b1",
+    "\u6536\u6b3e\u5df2\u5165\u8d26",
+    "\u5165\u8d26\u6210\u529f",
+    "\u5df2\u5165\u8d26",
     "\u5230\u8d26\u901a\u77e5",
     "\u5230\u8d26\u63d0\u9192",
     "\u4e8c\u7ef4\u7801\u6536\u6b3e",
     "\u652f\u4ed8\u5b9d\u5230\u8d26",
     "\u5fae\u4fe1\u652f\u4ed8\u6536\u6b3e",
     "\u5df2\u6536\u6b3e",
+    "\u9000\u6b3e\u6210\u529f",
+    "\u9000\u6b3e\u5230\u8d26",
+    "\u7ea2\u5305\u6536\u5165",
     "moneyreceived",
     "paymentreceived"
 )
@@ -62,11 +76,18 @@ private val incomeKeywords = listOf(
 private val expenseKeywords = listOf(
     "\u652f\u4ed8\u6210\u529f",
     "\u4ed8\u6b3e\u6210\u529f",
+    "\u4ea4\u6613\u6210\u529f",
+    "\u6263\u6b3e\u6210\u529f",
+    "\u6d88\u8d39\u6210\u529f",
     "\u5df2\u652f\u4ed8",
     "\u5df2\u4ed8\u6b3e",
     "\u5411\u5546\u5bb6\u4ed8\u6b3e",
     "\u6d88\u8d39\u652f\u51fa",
     "\u4ed8\u6b3e\u7801",
+    "\u4ed8\u6b3e\u65b9\u5f0f",
+    "\u652f\u4ed8\u65b9\u5f0f",
+    "\u4ed8\u6b3e\u91d1\u989d",
+    "\u8ba2\u5355\u91d1\u989d",
     "\u5b9e\u4ed8",
     "\u5fae\u4fe1\u652f\u4ed8",
     "\u652f\u4ed8\u5b9d\u652f\u4ed8",
@@ -80,16 +101,42 @@ private val transactionKeywords = (incomeKeywords + expenseKeywords + listOf(
     "\u6536\u6b3e",
     "\u5230\u8d26",
     "\u6d88\u8d39",
+    "\u4ea4\u6613",
+    "\u8ba2\u5355",
+    "\u91d1\u989d",
+    "\u5b9e\u4ed8",
+    "\u6263\u6b3e",
     "payment",
     "received"
 )).distinct()
 
-private val amountPatterns = listOf(
+private val explicitAmountPatterns = listOf(
     Regex(
         """(?:[\uFFE5\u00A5]|RMB|CNY)\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)""",
         RegexOption.IGNORE_CASE
     ),
     Regex("""([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)\s*(?:\u5143|\u5706)""")
+)
+
+private val standaloneAmountPattern = Regex(
+    """(?<![\d.,])([0-9]{1,6}(?:,[0-9]{3})*(?:\.[0-9]{1,2}))(?![\d.,])"""
+)
+
+private val amountContextKeywords = listOf(
+    "\u91d1\u989d",
+    "\u5b9e\u4ed8",
+    "\u652f\u4ed8",
+    "\u4ed8\u6b3e",
+    "\u6536\u6b3e",
+    "\u6536\u94b1",
+    "\u5230\u8d26",
+    "\u9000\u6b3e",
+    "\u5408\u8ba1",
+    "\u603b\u8ba1",
+    "\u4ea4\u6613",
+    "\u8ba2\u5355",
+    "amount",
+    "total"
 )
 
 internal fun queryNotificationAutomationStatus(context: Context): NotificationAutomationStatus {
@@ -379,13 +426,17 @@ private fun detectEntryType(normalizedContent: String): LedgerEntryType? {
     return when {
         incomeKeywords.any(normalizedContent::contains) -> LedgerEntryType.INCOME
         expenseKeywords.any(normalizedContent::contains) -> LedgerEntryType.EXPENSE
-        normalizedContent.contains("\u6536\u6b3e") || normalizedContent.contains("\u5230\u8d26") -> {
+        (normalizedContent.contains("\u6536\u6b3e") && !normalizedContent.contains("\u6536\u6b3e\u65b9")) ||
+            normalizedContent.contains("\u5230\u8d26") ||
+            normalizedContent.contains("\u5df2\u5165\u8d26") -> {
             LedgerEntryType.INCOME
         }
         normalizedContent.contains("\u652f\u4ed8") ||
             normalizedContent.contains("\u4ed8\u6b3e") ||
             normalizedContent.contains("\u6d88\u8d39") ||
-            normalizedContent.contains("\u652f\u51fa") -> {
+            normalizedContent.contains("\u652f\u51fa") ||
+            normalizedContent.contains("\u6263\u6b3e") ||
+            normalizedContent.contains("\u4ea4\u6613\u6210\u529f") -> {
             LedgerEntryType.EXPENSE
         }
         else -> null
@@ -407,36 +458,124 @@ private fun detectCategory(
 }
 
 private fun extractAmountInCents(content: String): Long? {
-    val lines = content
+    val lines = mergeSplitCurrencyLines(
+        content
         .lineSequence()
         .map(String::trim)
         .filter(String::isNotBlank)
         .toList()
+    )
     val prioritizedLineIndexes = lines.indices.filter { index ->
         val normalizedLine = normalizeForMatching(lines[index])
         transactionKeywords.any(normalizedLine::contains)
     }
 
     val contextualAmounts = prioritizedLineIndexes
-        .flatMap { index -> listOf(index, index + 1, index - 1) }
-        .distinct()
-        .filter { index -> index in lines.indices }
         .asSequence()
-        .flatMap { index -> extractAmountsFromLine(lines[index]).asSequence() }
+        .flatMap { center ->
+            contextualLineIndexes(center, lines.indices)
+                .asSequence()
+                .flatMap { index ->
+                    extractAmountsAroundLine(lines, index)
+                        .asSequence()
+                        .map { amountInCents ->
+                            AmountCandidate(
+                                amountInCents = amountInCents,
+                                score = scoreAmountCandidate(
+                                    lines = lines,
+                                    index = index,
+                                    distance = abs(index - center),
+                                    amountInCents = amountInCents
+                                )
+                            )
+                        }
+                }
+        }
         .toList()
 
     if (contextualAmounts.isNotEmpty()) {
-        return contextualAmounts.first()
+        return contextualAmounts
+            .maxWithOrNull(
+                compareBy<AmountCandidate> { candidate -> candidate.score }
+                    .thenBy { candidate -> candidate.amountInCents }
+            )
+            ?.amountInCents
     }
 
     return lines
         .asSequence()
-        .flatMap { line -> extractAmountsFromLine(line).asSequence() }
+        .flatMap { line -> extractAmountsFromLine(line, allowStandalone = false).asSequence() }
         .firstOrNull()
 }
 
-private fun extractAmountsFromLine(line: String): List<Long> {
-    return amountPatterns.flatMap { pattern ->
+private fun contextualLineIndexes(
+    center: Int,
+    validRange: IntRange
+): List<Int> {
+    return listOf(center, center + 1, center - 1, center + 2, center - 2, center + 3, center - 3)
+        .filter { index -> index in validRange }
+        .distinct()
+}
+
+private fun mergeSplitCurrencyLines(lines: List<String>): List<String> {
+    val mergedLines = mutableListOf<String>()
+    var index = 0
+    while (index < lines.size) {
+        val line = lines[index]
+        val nextLine = lines.getOrNull(index + 1)
+        if (
+            nextLine != null &&
+            isCurrencyOnlyLine(line) &&
+            standaloneAmountPattern.find(nextLine) != null
+        ) {
+            mergedLines += "$line$nextLine"
+            index += 2
+        } else {
+            mergedLines += line
+            index += 1
+        }
+    }
+    return mergedLines
+}
+
+private fun extractAmountsAroundLine(
+    lines: List<String>,
+    index: Int
+): List<Long> {
+    val line = lines[index]
+    val candidates = mutableListOf<Long>()
+    candidates += extractAmountsFromLine(line, allowStandalone = hasAmountContext(line))
+
+    if (index + 1 in lines.indices) {
+        candidates += extractAmountsFromLine(
+            "${line}${lines[index + 1]}",
+            allowStandalone = false
+        )
+    }
+
+    if (index - 1 in lines.indices) {
+        candidates += extractAmountsFromLine(
+            "${lines[index - 1]}${line}",
+            allowStandalone = false
+        )
+    }
+
+    if (candidates.isNotEmpty()) {
+        return candidates
+    }
+
+    val neighborHasAmountContext = (index - 1 in lines.indices && hasAmountContext(lines[index - 1])) ||
+        (index + 1 in lines.indices && hasAmountContext(lines[index + 1])) ||
+        (index - 1 in lines.indices && hasCurrencyMarker(lines[index - 1])) ||
+        (index + 1 in lines.indices && hasCurrencyMarker(lines[index + 1]))
+    return extractAmountsFromLine(line, allowStandalone = neighborHasAmountContext)
+}
+
+private fun extractAmountsFromLine(
+    line: String,
+    allowStandalone: Boolean
+): List<Long> {
+    val explicitAmounts = explicitAmountPatterns.flatMap { pattern ->
         pattern.findAll(line).mapNotNull { match ->
             match.groupValues
                 .drop(1)
@@ -444,8 +583,84 @@ private fun extractAmountsFromLine(line: String): List<Long> {
                 ?.replace(",", "")
                 ?.let(::sanitizeAmountInput)
                 ?.toAmountInCents()
+                ?.takeIf(::isLikelyPaymentAmount)
         }.toList()
     }
+
+    if (explicitAmounts.isNotEmpty() || !allowStandalone) {
+        return explicitAmounts
+    }
+
+    return standaloneAmountPattern.findAll(line)
+        .mapNotNull { match ->
+            match.groupValues
+                .getOrNull(1)
+                ?.replace(",", "")
+                ?.let(::sanitizeAmountInput)
+                ?.toAmountInCents()
+                ?.takeIf(::isLikelyPaymentAmount)
+        }
+        .toList()
+}
+
+private fun hasAmountContext(line: String): Boolean {
+    val normalizedLine = normalizeForMatching(line)
+    return amountContextKeywords.any { keyword ->
+        normalizedLine.contains(normalizeForMatching(keyword))
+    }
+}
+
+private fun hasCurrencyMarker(line: String): Boolean {
+    return line.contains('\uFFE5') ||
+        line.contains('\u00A5') ||
+        line.contains("RMB", ignoreCase = true) ||
+        line.contains("CNY", ignoreCase = true) ||
+        line.contains("\u5143") ||
+        line.contains("\u5706")
+}
+
+private fun isLikelyPaymentAmount(amountInCents: Long): Boolean {
+    return amountInCents in 1..20_000_000
+}
+
+private fun scoreAmountCandidate(
+    lines: List<String>,
+    index: Int,
+    distance: Int,
+    amountInCents: Long
+): Int {
+    val line = lines[index]
+    var score = 100 - distance * 20
+    if (hasAmountContext(line)) {
+        score += 40
+    }
+    if (hasCurrencyMarker(line)) {
+        score += 30
+    }
+    if (index - 1 in lines.indices && hasAmountContext(lines[index - 1])) {
+        score += 25
+    }
+    if (index + 1 in lines.indices && hasAmountContext(lines[index + 1])) {
+        score += 25
+    }
+    if (index - 1 in lines.indices && isCurrencyOnlyLine(lines[index - 1])) {
+        score += 80
+    }
+    if (index + 1 in lines.indices && isCurrencyOnlyLine(lines[index + 1])) {
+        score += 80
+    }
+    if (amountInCents >= 100L) {
+        score += 10
+    }
+    return score
+}
+
+private fun isCurrencyOnlyLine(line: String): Boolean {
+    val normalizedLine = line.trim()
+    return normalizedLine == "\uFFE5" ||
+        normalizedLine == "\u00A5" ||
+        normalizedLine.equals("RMB", ignoreCase = true) ||
+        normalizedLine.equals("CNY", ignoreCase = true)
 }
 
 private fun sha256Hex(value: String): String {
